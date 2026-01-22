@@ -1,0 +1,193 @@
+## 1. Purpose
+
+This document defines the **security scanning scope** and **success criteria** for implementing Static Application Security Testing (SAST) and related pre-runtime security controls in a **three-tier MERN stack application** using **GitLab CI/CD**.
+
+The objective is to establish **clear, enforceable, and auditable rules** that determine:
+- What is scanned
+- What is considered a failure
+- When a pipeline is allowed to proceed
+
+This ensures security is treated as a **first-class quality gate**, not an optional check.
+
+---
+
+## 2. Application Architecture Overview
+
+The application follows a standard **three-tier MERN architecture**:
+
+| Tier | Technology | Description |
+|----|-----------|------------|
+| Presentation | React | Frontend |
+| Application | Node.js + Express | REST API / business logic |
+| Data | MongoDB | Persistent storage |
+
+The repository is assumed to be a **monorepo**.
+
+---
+
+## 3. Repository Scope Definition
+
+### 3.1 In-Scope Components
+
+The following components **must be scanned in every pipeline run**:
+
+#### Source Code
+- `frontend/**/*.js`
+- `frontend/**/*.jsx`
+- `frontend/**/*.ts`
+- `frontend/**/*.tsx`
+- `backend/**/*.js`
+- `backend/**/*.ts`
+
+#### Dependency & Configuration Files
+- `package.json`
+- `package-lock.json`
+- `yarn.lock` (if applicable)
+- `.npmrc`
+- `Dockerfile`
+- `docker-compose.yml`
+- `.gitlab-ci.yml`
+
+#### Security-Relevant Files
+- `.env.example`
+- Configuration files (non-secret)
+- Authentication and authorization logic
+- API routes and middleware
+
+---
+
+### 3.2 Explicitly Out-of-Scope Components
+
+The following **must never be scanned** to avoid noise and false positives:
+
+- `node_modules/`
+- `dist/`
+- `build/`
+- `coverage/`
+- `.git/`
+- Generated artifacts
+- Runtime data directories
+
+---
+
+## 4. Threat Coverage Goals
+
+The security scans must be capable of detecting the following **high-impact risk categories**:
+
+### 4.1 Secrets Exposure
+- Hardcoded API keys
+- Database connection strings
+- JWT secrets
+- OAuth tokens
+- Cloud provider credentials
+
+### 4.2 Dependency & Supply Chain Risks
+- Known vulnerable NPM packages
+- Transitive dependency vulnerabilities
+- Insecure dependency versions
+
+### 4.3 Application Code Risks
+- Injection flaws (SQL/NoSQL/Command)
+- Authentication bypass
+- Authorization flaws
+- Insecure cryptography usage
+- Unsafe deserialization
+- Missing security headers
+- Insecure configuration patterns
+
+---
+
+## 5. Severity Classification Standard
+
+All tools used in the pipeline **must map findings** to the following unified severity model:
+
+| Severity | Definition |
+|--------|-----------|
+| Critical | Actively exploitable, immediate risk |
+| High | Severe vulnerability with realistic exploit paths |
+| Medium | Requires specific conditions or chaining |
+| Low | Best practice, hygiene, or hardening issues |
+| Informational | Non-actionable or contextual findings |
+
+---
+
+## 6. Success Criteria (Pass / Fail Rules)
+
+### 6.1 Pipeline Failure Conditions (Hard Gates)
+
+The pipeline **MUST FAIL** if **any** of the following conditions are met:
+
+#### Secrets Scanning
+- One or more **verified secrets** detected in the repository
+- Secrets detected in Git history or filesystem
+
+#### Dependency Scanning (SCA)
+- Any dependency vulnerability with **High** or **Critical** severity
+
+#### Static Code Analysis (SAST)
+- Any **High** or **Critical** severity finding in application code
+
+---
+
+### 6.2 Allowed Conditions (Non-Blocking)
+
+The pipeline **MAY PASS** if findings fall under:
+
+- Medium severity vulnerabilities (tracked, not blocking)
+- Low severity issues
+- Informational findings
+
+These findings must be:
+- Logged
+- Exported as artifacts
+- Available for centralized reporting and future remediation
+
+---
+
+## 7. Branch Enforcement Strategy
+
+| Branch Type | Enforcement Level |
+|-----------|------------------|
+| Feature branches | Security scans enabled, failures block merge |
+| Merge Requests | Full enforcement of all gates |
+| Protected branches (main/master) | Zero tolerance enforcement |
+| Tags / Releases | Identical rules as protected branches |
+
+---
+
+## 8. Compliance & Auditability Requirements
+
+To ensure traceability and compliance:
+
+- Every security scan must generate **machine-readable artifacts (JSON)**
+- Artifacts must be retained for:
+  - Audit
+  - Forensics
+  - Centralized vulnerability management
+- All failures must be reproducible locally by developers
+
+---
+
+## 9. Guiding Security Principles
+
+This scope and criteria are designed around the following principles:
+
+- **Shift Left Security**: Detect issues before runtime
+- **Fail Fast**: Stop insecure changes early
+- **Zero Trust for Code**: Every commit is untrusted until verified
+- **Developer Enablement**: Clear feedback and reproducible results
+- **Scalability**: Ready for DAST, runtime, and container scanning phases
+
+---
+
+## 10. Deliverable Summary
+
+| Item | Status |
+|----|-------|
+| Scan scope defined | ✅ |
+| Severity model defined | ✅ |
+| Pass / Fail rules defined | ✅ |
+| GitLab CI compatibility | ✅ |
+| MERN stack aligned | ✅ |
+
+---

@@ -1,0 +1,20 @@
+# Example configuration for Blinkit Clone Workshop
+
+aws_region  = "us-east-1"
+environment = "workshop"
+
+# OPTION 1: Use Existing VPC (Uncomment and fill values)
+# vpc_id             = "vpc-xxxxxxxxxxxxxxxxx"
+# public_subnet_ids  = ["subnet-xxxxxxxxxxxxxxxxx", "subnet-xxxxxxxxxxxxxxxxx"]
+# private_subnet_ids = ["subnet-xxxxxxxxxxxxxxxxx", "subnet-xxxxxxxxxxxxxxxxx"]
+
+# OPTION 2: Create New VPC (Default)
+# Leave the above variables commented out or empty strings
+
+# Secrets (Change these values!)
+access_token_secret  = "change_me_to_a_secure_random_string_access"
+refresh_token_secret = "change_me_to_a_secure_random_string_refresh"
+mongodb_root_password = "change_me_to_secure_password"
+
+# Instance Configuration
+instance_type = "t3.medium"
