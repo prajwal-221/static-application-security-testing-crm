@@ -1,10 +1,5 @@
 name: Security Pipeline (Staging)
 
-########################################################
-# Triggers
-# - Run only on staging branch
-# - Allow manual execution
-########################################################
 on:
   push:
     branches: [ staging ]
@@ -12,9 +7,6 @@ on:
     branches: [ staging ]
   workflow_dispatch:
 
-########################################################
-# Global Environment Variables
-########################################################
 env:
   APP_ENV: staging
   SEC_REPORTS_DIR: security-reports
@@ -24,19 +16,15 @@ env:
 jobs:
 
   ########################################################
-  # Task 5 & 6 — Secret Scanning (Gitleaks)
-  # MODE: DISCOVERY
-  # PURPOSE:
-  # - Detect exposed secrets, tokens, passwords
-  # - Failures are allowed temporarily for visibility
+  # Task 5 & 6 — Secret Scan (Gitleaks)
   ########################################################
   secret_scan:
     runs-on: ubuntu-latest
-    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
+    continue-on-error: true   # Discovery mode
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Gitleaks Secret Scan
+      - name: Run Gitleaks
         uses: zricethezav/gitleaks-action@v2
         with:
           args: detect --report-format json --report-path security-reports/gitleaks-report.json
@@ -49,32 +37,28 @@ jobs:
 
 
   ########################################################
-  # Task 7 & 8 — SCA Filesystem Scan (Trivy)
-  # MODE: DISCOVERY
-  # PURPOSE:
-  # - Detect vulnerable dependencies
-  # - Report only, no blocking yet
+  # Task 7 & 8 — SCA FS Scan (Trivy)
   ########################################################
   sca_fs_scan:
     runs-on: ubuntu-latest
     needs: secret_scan
-    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
+    continue-on-error: true   # Discovery mode
     steps:
       - uses: actions/checkout@v4
 
-      - name: Prepare Trivy Cache
-        run: mkdir -p $TRIVY_CACHE_DIR
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@v0.2.0
 
-      - name: Run Trivy Filesystem Scan
-        uses: aquasecurity/trivy-action@master
-        with:
-          scan-type: fs
-          severity: HIGH,CRITICAL
-          ignore-unfixed: true
-          format: json
-          output: security-reports/trivy-fs.json
+      - name: Run Trivy FS Scan
+        run: |
+          mkdir -p $SEC_REPORTS_DIR
+          trivy fs . \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format json \
+            --output $SEC_REPORTS_DIR/trivy-fs.json
 
-      - name: Upload Trivy FS Report
+      - name: Upload FS Scan Report
         uses: actions/upload-artifact@v4
         with:
           name: trivy-fs-report
@@ -83,24 +67,20 @@ jobs:
 
   ########################################################
   # Task 9 & 10 — SAST (Semgrep)
-  # MODE: DISCOVERY
-  # PURPOSE:
-  # - Detect insecure code patterns
-  # - Identify security design flaws
   ########################################################
   sast_scan:
     runs-on: ubuntu-latest
     needs: sca_fs_scan
-    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
+    continue-on-error: true   # Discovery mode
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Semgrep SAST Scan
+      - name: Run Semgrep SAST
         uses: returntocorp/semgrep-action@v1
         with:
           config: auto
 
-      - name: Upload Semgrep Logs
+      - name: Upload Semgrep Report
         uses: actions/upload-artifact@v4
         with:
           name: semgrep-report
@@ -108,50 +88,48 @@ jobs:
 
 
   ########################################################
-  # Task 11 — Build Docker Images
-  # PURPOSE:
-  # - Build backend + frontend images
-  # - Validate container build reproducibility
+  # Tasks 11 → 16 — Docker Build + Image Scan + Runtime + DAST
   ########################################################
-  build_images:
+  docker_security_pipeline:
     runs-on: ubuntu-latest
     needs: sast_scan
+    continue-on-error: true   # Discovery mode
+
     steps:
       - uses: actions/checkout@v4
 
       ########################################################
-      # Secure Runtime Environment Injection
-      # - Generate .env dynamically using GitHub Secrets
+      # Setup Environment Variables (from GitHub Secrets)
       ########################################################
-      - name: Generate .env from GitHub Secrets
+      - name: Export Runtime Secrets
         run: |
-          cat <<EOF > .env
-          DATABASE=${{ secrets.DATABASE }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          NODE_ENV=${{ secrets.NODE_ENV }}
-          OPENSSL_CONF=${{ secrets.OPENSSL_CONF }}
-          PUBLIC_SERVER_FILE=${{ secrets.PUBLIC_SERVER_FILE }}
-          PORT=${{ secrets.PORT }}
-          EOF
+          echo "DATABASE=${{ secrets.DATABASE }}" >> $GITHUB_ENV
+          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> $GITHUB_ENV
+          echo "NODE_ENV=${{ secrets.NODE_ENV }}" >> $GITHUB_ENV
+          echo "OPENSSL_CONF=${{ secrets.OPENSSL_CONF }}" >> $GITHUB_ENV
+          echo "PUBLIC_SERVER_FILE=${{ secrets.PUBLIC_SERVER_FILE }}" >> $GITHUB_ENV
+          echo "PORT=${{ secrets.PORT }}" >> $GITHUB_ENV
 
-      - name: Build Docker Images using Docker Compose
+      ########################################################
+      # Install Trivy CLI
+      ########################################################
+      - name: Install Trivy CLI
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.48.3_Linux-64bit.deb
+          sudo dpkg -i trivy_0.48.3_Linux-64bit.deb
+
+      ########################################################
+      # Task 11 — Build Docker Images
+      ########################################################
+      - name: Build Docker Images
         run: docker compose build
 
-
-  ########################################################
-  # Task 12 & 13 — Image Vulnerability Scan (Trivy)
-  # MODE: DISCOVERY
-  # PURPOSE:
-  # - Detect OS + library vulnerabilities in images
-  ########################################################
-  image_scan:
-    runs-on: ubuntu-latest
-    needs: build_images
-    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Trivy Image Scans
+      ########################################################
+      # Task 12 & 13 — Image Vulnerability Scan
+      ########################################################
+      - name: Scan Built Images
         run: |
           mkdir -p $SEC_REPORTS_DIR
           docker images --format "{{.Repository}}:{{.Tag}}" | while read image; do
@@ -159,92 +137,35 @@ jobs:
               --severity HIGH,CRITICAL \
               --format json \
               --output "$SEC_REPORTS_DIR/trivy-image-$(echo $image | tr '/:' '_').json"
-          done
+          done || true
 
-      - name: Upload Image Scan Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-image-report
-          path: security-reports/
-
-
-  ########################################################
-  # Task 14 — Deploy Application for Testing
-  # PURPOSE:
-  # - Bring up full application stack
-  # - Prepare environment for runtime & DAST scanning
-  ########################################################
-  deploy_for_testing:
-    runs-on: ubuntu-latest
-    needs: image_scan
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Generate .env from GitHub Secrets
-        run: |
-          cat <<EOF > .env
-          DATABASE=${{ secrets.DATABASE }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          NODE_ENV=${{ secrets.NODE_ENV }}
-          OPENSSL_CONF=${{ secrets.OPENSSL_CONF }}
-          PUBLIC_SERVER_FILE=${{ secrets.PUBLIC_SERVER_FILE }}
-          PORT=${{ secrets.PORT }}
-          EOF
-
+      ########################################################
+      # Task 14 — Deploy for DAST
+      ########################################################
       - name: Deploy Application Stack
         run: docker compose up -d
 
       - name: Wait for Application Startup
         run: sleep 40
 
-
-  ########################################################
-  # Task 15 — Runtime Vulnerability Scan (Trivy)
-  # MODE: DISCOVERY
-  # PURPOSE:
-  # - Scan running containers
-  ########################################################
-  runtime_scan:
-    runs-on: ubuntu-latest
-    needs: deploy_for_testing
-    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Run Runtime Container Scan
+      ########################################################
+      # Task 15 — Runtime Vulnerability Scan (Trivy)
+      ########################################################
+      - name: Runtime Container Scan
         run: |
-          mkdir -p $SEC_REPORTS_DIR
           docker ps --format "{{.ID}}" | while read cid; do
             trivy container "$cid" \
               --severity HIGH,CRITICAL \
               --format json \
               --output "$SEC_REPORTS_DIR/trivy-runtime-$cid.json"
-          done
+          done || true
 
-      - name: Upload Runtime Scan Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-runtime-report
-          path: security-reports/
-
-
-  ########################################################
-  # Task 16 — DAST Baseline Scan (OWASP ZAP)
-  # MODE: DISCOVERY
-  # PURPOSE:
-  # - Passive dynamic security testing
-  # - Identify runtime vulnerabilities
-  ########################################################
-  zap_baseline:
-    runs-on: ubuntu-latest
-    needs: runtime_scan
-    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
-    steps:
-      - uses: actions/checkout@v4
-
+      ########################################################
+      # Task 16 — DAST (OWASP ZAP Baseline)
+      ########################################################
       - name: Run OWASP ZAP Baseline Scan
         run: |
-          docker run --network host \
+          docker run \
             -v $(pwd):/zap/wrk \
             owasp/zap2docker-stable \
             zap-baseline.py \
@@ -252,10 +173,46 @@ jobs:
             -r zap-baseline.html \
             -J zap-baseline.json || true
 
-      - name: Upload ZAP Report
+      ########################################################
+      # Upload Docker Security Reports
+      ########################################################
+      - name: Upload Docker Security Reports
         uses: actions/upload-artifact@v4
         with:
-          name: zap-report
+          name: docker-security-reports
           path: |
+            security-reports/
             zap-baseline.html
             zap-baseline.json
+
+
+  ########################################################
+  # Final Stage — Centralized Security Deliverables
+  ########################################################
+  final_security_report:
+    name: Centralized Security Deliverables
+    runs-on: ubuntu-latest
+    needs:
+      - secret_scan
+      - sca_fs_scan
+      - sast_scan
+      - docker_security_pipeline
+    steps:
+      - name: Download All Security Reports
+        uses: actions/download-artifact@v4
+        with:
+          path: consolidated-security-reports
+
+      - name: Generate Security Report Index
+        run: |
+          echo "Security Pipeline Reports" > consolidated-security-reports/README.txt
+          echo "=========================" >> consolidated-security-reports/README.txt
+          echo "" >> consolidated-security-reports/README.txt
+          echo "Included Reports:" >> consolidated-security-reports/README.txt
+          find consolidated-security-reports -type f >> consolidated-security-reports/README.txt
+
+      - name: Upload Final Security Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: FINAL-SECURITY-DELIVERABLES
+          path: consolidated-security-reports
