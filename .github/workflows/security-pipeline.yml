@@ -10,17 +10,17 @@ on:
 env:
   APP_ENV: staging
   SEC_REPORTS_DIR: security-reports
-  TRIVY_CACHE_DIR: .trivycache
   DOCKER_BUILDKIT: 1
 
 jobs:
 
   ########################################################
-  # Secret Scan — Gitleaks
+  # 1 — Secret Scanning (Gitleaks)
   ########################################################
   secret_scan:
     runs-on: ubuntu-latest
     continue-on-error: true
+
     steps:
       - uses: actions/checkout@v4
 
@@ -29,67 +29,65 @@ jobs:
         with:
           args: detect --report-format json --report-path security-reports/gitleaks-report.json
 
-      - name: Upload Gitleaks Report
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: gitleaks-report
           path: security-reports/gitleaks-report.json
 
 
   ########################################################
-  # SCA FS Scan — Trivy
+  # 2 — Dependency + FS Scan (Trivy)
   ########################################################
   sca_fs_scan:
     runs-on: ubuntu-latest
     needs: secret_scan
     continue-on-error: true
+
     steps:
       - uses: actions/checkout@v4
 
       - name: Setup Trivy
         uses: aquasecurity/setup-trivy@v0.2.0
 
-      - name: Run Trivy Filesystem Scan
+      - name: Run Trivy FS Scan
         run: |
           mkdir -p $SEC_REPORTS_DIR
-          trivy filesystem . \
-            --scanners vuln,secret \
+          trivy fs . \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --format json \
             --output $SEC_REPORTS_DIR/trivy-fs.json || true
 
-      - name: Upload FS Scan Report
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: trivy-fs-report
           path: security-reports/trivy-fs.json
 
 
   ########################################################
-  # SAST — Semgrep
+  # 3 — SAST (Semgrep)
   ########################################################
   sast_scan:
     runs-on: ubuntu-latest
     needs: sca_fs_scan
     continue-on-error: true
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Semgrep SAST
+      - name: Run Semgrep
         uses: returntocorp/semgrep-action@v1
         with:
           config: auto
 
-      - name: Upload Semgrep Report
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: semgrep-report
           path: .semgrep_logs/
 
 
   ########################################################
-  # Docker Build + Image + Runtime + DAST
+  # 4 — Docker Build + Image + Runtime + DAST
   ########################################################
   docker_security_pipeline:
     runs-on: ubuntu-latest
@@ -100,88 +98,79 @@ jobs:
       - uses: actions/checkout@v4
 
       ########################################################
-      # Export Secrets into Runtime
+      # Docker Hub Login (Avoid Pull Limits)
       ########################################################
-      - name: Export Runtime Secrets
-        run: |
-          echo "DATABASE=${{ secrets.DATABASE }}" >> $GITHUB_ENV
-          echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> $GITHUB_ENV
-          echo "NODE_ENV=${{ secrets.NODE_ENV }}" >> $GITHUB_ENV
-          echo "OPENSSL_CONF=${{ secrets.OPENSSL_CONF }}" >> $GITHUB_ENV
-          echo "PUBLIC_SERVER_FILE=${{ secrets.PUBLIC_SERVER_FILE }}" >> $GITHUB_ENV
-          echo "PORT=${{ secrets.PORT }}" >> $GITHUB_ENV
+      - name: Docker Login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
 
       ########################################################
-      # Setup Trivy CLI
+      # Setup Trivy
       ########################################################
       - name: Setup Trivy
         uses: aquasecurity/setup-trivy@v0.2.0
 
       ########################################################
-      # Build Docker Images
+      # Build Images
       ########################################################
       - name: Build Docker Images
         run: docker compose build
 
       ########################################################
-      # Image Vulnerability Scan
+      # Image Scan
       ########################################################
-      - name: Scan Built Images
+      - name: Scan Docker Images
         run: |
           mkdir -p $SEC_REPORTS_DIR
-          docker images --format "{{.Repository}}:{{.Tag}}" | grep -v "<none>" | while read image; do
+          docker images --format "{{.Repository}}:{{.Tag}}" | while read image; do
             trivy image "$image" \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
-              --scanners vuln \
               --format json \
-              --output "$SEC_REPORTS_DIR/trivy-image-$(echo $image | tr '/:' '_').json" || true
-          done
+              --output "$SEC_REPORTS_DIR/trivy-image-$(echo $image | tr '/:' '_').json"
+          done || true
 
       ########################################################
-      # Deploy Stack for Runtime + DAST
+      # Deploy Stack
       ########################################################
-      - name: Deploy Application Stack
+      - name: Deploy Application
         run: docker compose up -d
 
-      - name: Wait for App Startup
-        run: sleep 40
+      - name: Wait for Services
+        run: sleep 45
 
       ########################################################
-      # Runtime Container Scan
+      # Runtime Scan (Correct Trivy Command)
       ########################################################
       - name: Runtime Container Scan
         run: |
           docker ps --format "{{.ID}}" | while read cid; do
-            trivy rootfs "/proc/$cid/root" \
-              --severity HIGH,CRITICAL \
-              --ignore-unfixed \
-              --scanners vuln \
+            trivy container "$cid" \
               --format json \
-              --output "$SEC_REPORTS_DIR/trivy-runtime-$cid.json" || true
-          done
+              --output "$SEC_REPORTS_DIR/trivy-runtime-$cid.json"
+          done || true
 
       ########################################################
-      # DAST — OWASP ZAP (FIXED IMAGE + TAG)
+      # DAST — OWASP ZAP Baseline (FIXED IMAGE)
       ########################################################
-      - name: Run OWASP ZAP Baseline Scan
+      - name: Run OWASP ZAP Baseline
         run: |
-          docker pull owasp/zap2docker-stable:2.14.0
-
+          docker pull zaproxy/zap-stable
           docker run --rm \
-            -v $(pwd):/zap/wrk \
             --network host \
-            owasp/zap2docker-stable:2.14.0 \
+            -v $(pwd):/zap/wrk \
+            zaproxy/zap-stable \
             zap-baseline.py \
             -t http://localhost:4000 \
             -r zap-baseline.html \
             -J zap-baseline.json || true
 
       ########################################################
-      # Upload Docker Security Reports
+      # Upload Reports
       ########################################################
-      - name: Upload Docker Security Reports
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: docker-security-reports
           path: |
@@ -191,10 +180,9 @@ jobs:
 
 
   ########################################################
-  # Final Aggregated Security Reports
+  # 5 — Final Report Bundle
   ########################################################
   final_security_report:
-    name: Centralized Security Deliverables
     runs-on: ubuntu-latest
     needs:
       - secret_scan
@@ -203,20 +191,17 @@ jobs:
       - docker_security_pipeline
 
     steps:
-      - name: Download All Reports
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: consolidated-security-reports
 
-      - name: Generate Security Index
+      - name: Generate Summary Index
         run: |
           echo "Security Pipeline Reports" > consolidated-security-reports/README.txt
           echo "=========================" >> consolidated-security-reports/README.txt
-          echo "" >> consolidated-security-reports/README.txt
           find consolidated-security-reports -type f >> consolidated-security-reports/README.txt
 
-      - name: Upload Final Security Bundle
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: FINAL-SECURITY-DELIVERABLES
           path: consolidated-security-reports
