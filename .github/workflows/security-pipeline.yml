@@ -10,7 +10,6 @@ on:
 env:
   APP_ENV: staging
   SEC_REPORTS_DIR: security-reports
-  TRIVY_CACHE_DIR: .trivycache
   DOCKER_BUILDKIT: 1
 
 jobs:
@@ -20,14 +19,17 @@ jobs:
   ########################################################
   secret_scan:
     runs-on: ubuntu-latest
-    continue-on-error: true   # Discovery mode
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
+
+      - name: Create Report Directory
+        run: mkdir -p $SEC_REPORTS_DIR
 
       - name: Run Gitleaks
         uses: zricethezav/gitleaks-action@v2
         with:
-          args: detect --report-format json --report-path security-reports/gitleaks-report.json
+          args: detect --report-format json --report-path ${{ env.SEC_REPORTS_DIR }}/gitleaks-report.json
 
       - name: Upload Gitleaks Report
         uses: actions/upload-artifact@v4
@@ -37,12 +39,12 @@ jobs:
 
 
   ########################################################
-  # Task 7 & 8 — SCA FS Scan (Trivy)
+  # Task 7 & 8 — SCA Filesystem Scan (Trivy)
   ########################################################
   sca_fs_scan:
     runs-on: ubuntu-latest
     needs: secret_scan
-    continue-on-error: true   # Discovery mode
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -52,11 +54,11 @@ jobs:
       - name: Run Trivy FS Scan
         run: |
           mkdir -p $SEC_REPORTS_DIR
-          trivy fs . \
+          trivy fs \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --format json \
-            --output $SEC_REPORTS_DIR/trivy-fs.json
+            --output $SEC_REPORTS_DIR/trivy-fs.json .
 
       - name: Upload FS Scan Report
         uses: actions/upload-artifact@v4
@@ -71,11 +73,11 @@ jobs:
   sast_scan:
     runs-on: ubuntu-latest
     needs: sca_fs_scan
-    continue-on-error: true   # Discovery mode
+    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Semgrep SAST
+      - name: Run Semgrep
         uses: returntocorp/semgrep-action@v1
         with:
           config: auto
@@ -88,20 +90,20 @@ jobs:
 
 
   ########################################################
-  # Tasks 11 → 16 — Docker Build + Image Scan + Runtime + DAST
+  # Docker Security Pipeline (Build → Scan → DAST)
   ########################################################
   docker_security_pipeline:
     runs-on: ubuntu-latest
     needs: sast_scan
-    continue-on-error: true   # Discovery mode
+    continue-on-error: true
 
     steps:
       - uses: actions/checkout@v4
 
       ########################################################
-      # Setup Environment Variables (from GitHub Secrets)
+      # Export Secrets
       ########################################################
-      - name: Export Runtime Secrets
+      - name: Export Secrets
         run: |
           echo "DATABASE=${{ secrets.DATABASE }}" >> $GITHUB_ENV
           echo "JWT_SECRET=${{ secrets.JWT_SECRET }}" >> $GITHUB_ENV
@@ -109,63 +111,67 @@ jobs:
           echo "OPENSSL_CONF=${{ secrets.OPENSSL_CONF }}" >> $GITHUB_ENV
           echo "PUBLIC_SERVER_FILE=${{ secrets.PUBLIC_SERVER_FILE }}" >> $GITHUB_ENV
           echo "PORT=${{ secrets.PORT }}" >> $GITHUB_ENV
+          echo "MONGO_INITDB_ROOT_USERNAME=${{ secrets.MONGO_INITDB_ROOT_USERNAME }}" >> $GITHUB_ENV
+          echo "MONGO_INITDB_ROOT_PASSWORD=${{ secrets.MONGO_INITDB_ROOT_PASSWORD }}" >> $GITHUB_ENV
 
       ########################################################
-      # Setup Trivy CLI (SAFE METHOD)
+      # Setup Trivy
       ########################################################
       - name: Setup Trivy
         uses: aquasecurity/setup-trivy@v0.2.0
 
       ########################################################
-      # Task 11 — Build Docker Images
+      # Build Docker Images
       ########################################################
       - name: Build Docker Images
         run: docker compose build
 
       ########################################################
-      # Task 12 & 13 — Image Vulnerability Scan
+      # Image Scan
       ########################################################
-      - name: Scan Built Images
+      - name: Scan Docker Images
         run: |
           mkdir -p $SEC_REPORTS_DIR
           docker images --format "{{.Repository}}:{{.Tag}}" | while read image; do
-            trivy image "$image" \
+            trivy image \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
               --format json \
-              --output "$SEC_REPORTS_DIR/trivy-image-$(echo $image | tr '/:' '_').json"
+              --output "$SEC_REPORTS_DIR/trivy-image-$(echo $image | tr '/:' '_').json" \
+              "$image"
           done || true
 
       ########################################################
-      # Task 14 — Deploy for DAST
+      # Deploy for DAST
       ########################################################
-      - name: Deploy Application Stack
+      - name: Deploy Stack
         run: docker compose up -d
 
-      - name: Wait for Application Startup
+      - name: Wait for Startup
         run: sleep 40
 
       ########################################################
-      # Task 15 — Runtime Vulnerability Scan (Trivy)
+      # Runtime Scan
       ########################################################
-      - name: Runtime Container Scan
+      - name: Runtime Scan
         run: |
           docker ps --format "{{.ID}}" | while read cid; do
-            trivy container "$cid" \
+            trivy container \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
               --format json \
-              --output "$SEC_REPORTS_DIR/trivy-runtime-$cid.json"
+              --output "$SEC_REPORTS_DIR/trivy-runtime-$cid.json" \
+              "$cid"
           done || true
 
       ########################################################
-      # Task 16 — DAST (OWASP ZAP Baseline)
+      # DAST — OWASP ZAP Baseline
       ########################################################
-      - name: Run OWASP ZAP Baseline Scan
+      - name: OWASP ZAP Baseline Scan
         run: |
-          docker run \
+          docker run --network host \
             -v $(pwd):/zap/wrk \
-            owasp/zap2docker-stable \
+            ghcr.io/zaproxy/zap-stable \
             zap-baseline.py \
             -t http://localhost:4000 \
             -r zap-baseline.html \
@@ -185,7 +191,7 @@ jobs:
 
 
   ########################################################
-  # Final Stage — Centralized Security Deliverables
+  # Final Consolidated Security Deliverable
   ########################################################
   final_security_report:
     name: Centralized Security Deliverables
@@ -195,13 +201,14 @@ jobs:
       - sca_fs_scan
       - sast_scan
       - docker_security_pipeline
+
     steps:
-      - name: Download All Security Reports
+      - name: Download All Artifacts
         uses: actions/download-artifact@v4
         with:
           path: consolidated-security-reports
 
-      - name: Generate Security Report Index
+      - name: Generate Report Index
         run: |
           echo "Security Pipeline Reports" > consolidated-security-reports/README.txt
           echo "=========================" >> consolidated-security-reports/README.txt
