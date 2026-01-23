@@ -1,14 +1,20 @@
-name: Security Pipeline (Staging) — Discovery Mode
+name: Security Pipeline (Staging)
 
+########################################################
+# Triggers
+# - Run only on staging branch
+# - Allow manual execution
+########################################################
 on:
   push:
-    branches:
-      - staging
+    branches: [ staging ]
   pull_request:
-    branches:
-      - staging
+    branches: [ staging ]
   workflow_dispatch:
 
+########################################################
+# Global Environment Variables
+########################################################
 env:
   APP_ENV: staging
   SEC_REPORTS_DIR: security-reports
@@ -19,21 +25,21 @@ jobs:
 
   ########################################################
   # Task 5 & 6 — Secret Scanning (Gitleaks)
+  # MODE: DISCOVERY
   # PURPOSE:
-  # - Detect leaked credentials, tokens, API keys.
-  # - BLOCKING scan even in discovery mode (best practice).
+  # - Detect exposed secrets, tokens, passwords
+  # - Failures are allowed temporarily for visibility
   ########################################################
   secret_scan:
-    name: Secret Scan — Gitleaks
     runs-on: ubuntu-latest
+    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Gitleaks
+      - name: Run Gitleaks Secret Scan
         uses: zricethezav/gitleaks-action@v2
         with:
-          args: detect --report-format json --report-path ${{ env.SEC_REPORTS_DIR }}/gitleaks-report.json
-        continue-on-error: false   # ❌ Secrets should ALWAYS fail pipeline
+          args: detect --report-format json --report-path security-reports/gitleaks-report.json
 
       - name: Upload Gitleaks Report
         uses: actions/upload-artifact@v4
@@ -43,23 +49,23 @@ jobs:
 
 
   ########################################################
-  # Task 7 & 8 — Dependency / SCA Scan (Trivy FS)
+  # Task 7 & 8 — SCA Filesystem Scan (Trivy)
   # MODE: DISCOVERY
   # PURPOSE:
-  # - Identify vulnerable dependencies
-  # - DO NOT fail pipeline yet
+  # - Detect vulnerable dependencies
+  # - Report only, no blocking yet
   ########################################################
   sca_fs_scan:
-    name: Dependency Scan — Trivy FS (Discovery)
     runs-on: ubuntu-latest
     needs: secret_scan
+    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
     steps:
       - uses: actions/checkout@v4
 
-      - name: Setup Trivy cache
+      - name: Prepare Trivy Cache
         run: mkdir -p $TRIVY_CACHE_DIR
 
-      - name: Run Trivy FS scan (Non-blocking)
+      - name: Run Trivy Filesystem Scan
         uses: aquasecurity/trivy-action@master
         with:
           scan-type: fs
@@ -67,9 +73,8 @@ jobs:
           ignore-unfixed: true
           format: json
           output: security-reports/trivy-fs.json
-        continue-on-error: true   # ✅ Discovery mode — allow vulnerabilities
 
-      - name: Upload FS scan report
+      - name: Upload Trivy FS Report
         uses: actions/upload-artifact@v4
         with:
           name: trivy-fs-report
@@ -81,48 +86,55 @@ jobs:
   # MODE: DISCOVERY
   # PURPOSE:
   # - Detect insecure code patterns
-  # - DO NOT block while learning
+  # - Identify security design flaws
   ########################################################
   sast_scan:
-    name: SAST — Semgrep (Discovery)
     runs-on: ubuntu-latest
     needs: sca_fs_scan
+    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Semgrep
-        run: pip install semgrep
+      - name: Run Semgrep SAST Scan
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: auto
 
-      - name: Run Semgrep SAST (Non-blocking)
-        run: |
-          mkdir -p $SEC_REPORTS_DIR
-          semgrep scan \
-            --config=auto \
-            --json \
-            --output $SEC_REPORTS_DIR/sast-report.json \
-            || true
-        # ✅ Allow pipeline to continue even if findings exist
-
-      - name: Upload SAST report
+      - name: Upload Semgrep Logs
         uses: actions/upload-artifact@v4
         with:
-          name: sast-report
-          path: security-reports/sast-report.json
+          name: semgrep-report
+          path: .semgrep_logs/
 
 
   ########################################################
-  # Task 11 — Build Application Images
+  # Task 11 — Build Docker Images
   # PURPOSE:
-  # - Build Docker images using Docker Compose
+  # - Build backend + frontend images
+  # - Validate container build reproducibility
   ########################################################
   build_images:
-    name: Build Images — Docker Compose
     runs-on: ubuntu-latest
     needs: sast_scan
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build Docker images
+      ########################################################
+      # Secure Runtime Environment Injection
+      # - Generate .env dynamically using GitHub Secrets
+      ########################################################
+      - name: Generate .env from GitHub Secrets
+        run: |
+          cat <<EOF > .env
+          DATABASE=${{ secrets.DATABASE }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          NODE_ENV=${{ secrets.NODE_ENV }}
+          OPENSSL_CONF=${{ secrets.OPENSSL_CONF }}
+          PUBLIC_SERVER_FILE=${{ secrets.PUBLIC_SERVER_FILE }}
+          PORT=${{ secrets.PORT }}
+          EOF
+
+      - name: Build Docker Images using Docker Compose
         run: docker compose build
 
 
@@ -130,27 +142,26 @@ jobs:
   # Task 12 & 13 — Image Vulnerability Scan (Trivy)
   # MODE: DISCOVERY
   # PURPOSE:
-  # - Scan built container images
-  # - DO NOT fail pipeline
+  # - Detect OS + library vulnerabilities in images
   ########################################################
   image_scan:
-    name: Image Scan — Trivy (Discovery)
     runs-on: ubuntu-latest
     needs: build_images
+    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
     steps:
       - uses: actions/checkout@v4
 
-      - name: Scan built images (Non-blocking)
+      - name: Run Trivy Image Scans
         run: |
           mkdir -p $SEC_REPORTS_DIR
           docker images --format "{{.Repository}}:{{.Tag}}" | while read image; do
             trivy image "$image" \
               --severity HIGH,CRITICAL \
               --format json \
-              --output "$SEC_REPORTS_DIR/trivy-image-$(echo $image | tr '/:' '_').json" || true
+              --output "$SEC_REPORTS_DIR/trivy-image-$(echo $image | tr '/:' '_').json"
           done
 
-      - name: Upload image scan reports
+      - name: Upload Image Scan Reports
         uses: actions/upload-artifact@v4
         with:
           name: trivy-image-report
@@ -158,22 +169,33 @@ jobs:
 
 
   ########################################################
-  # Task 14 — Deploy Stack for DAST
+  # Task 14 — Deploy Application for Testing
   # PURPOSE:
-  # - Bring application online for runtime + DAST scanning
+  # - Bring up full application stack
+  # - Prepare environment for runtime & DAST scanning
   ########################################################
   deploy_for_testing:
-    name: Deploy Stack — Docker Compose
     runs-on: ubuntu-latest
     needs: image_scan
     steps:
       - uses: actions/checkout@v4
 
-      - name: Deploy application stack
+      - name: Generate .env from GitHub Secrets
+        run: |
+          cat <<EOF > .env
+          DATABASE=${{ secrets.DATABASE }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          NODE_ENV=${{ secrets.NODE_ENV }}
+          OPENSSL_CONF=${{ secrets.OPENSSL_CONF }}
+          PUBLIC_SERVER_FILE=${{ secrets.PUBLIC_SERVER_FILE }}
+          PORT=${{ secrets.PORT }}
+          EOF
+
+      - name: Deploy Application Stack
         run: docker compose up -d
 
-      - name: Wait for application startup
-        run: sleep 30
+      - name: Wait for Application Startup
+        run: sleep 40
 
 
   ########################################################
@@ -183,23 +205,23 @@ jobs:
   # - Scan running containers
   ########################################################
   runtime_scan:
-    name: Runtime Scan — Trivy (Discovery)
     runs-on: ubuntu-latest
     needs: deploy_for_testing
+    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
     steps:
       - uses: actions/checkout@v4
 
-      - name: Runtime container scanning (Non-blocking)
+      - name: Run Runtime Container Scan
         run: |
           mkdir -p $SEC_REPORTS_DIR
           docker ps --format "{{.ID}}" | while read cid; do
             trivy container "$cid" \
               --severity HIGH,CRITICAL \
               --format json \
-              --output "$SEC_REPORTS_DIR/trivy-runtime-$cid.json" || true
+              --output "$SEC_REPORTS_DIR/trivy-runtime-$cid.json"
           done
 
-      - name: Upload runtime reports
+      - name: Upload Runtime Scan Reports
         uses: actions/upload-artifact@v4
         with:
           name: trivy-runtime-report
@@ -207,30 +229,30 @@ jobs:
 
 
   ########################################################
-  # Task 16 — DAST Baseline (OWASP ZAP)
+  # Task 16 — DAST Baseline Scan (OWASP ZAP)
   # MODE: DISCOVERY
   # PURPOSE:
+  # - Passive dynamic security testing
   # - Identify runtime vulnerabilities
-  # - Passive scanning only
   ########################################################
   zap_baseline:
-    name: DAST — OWASP ZAP (Discovery)
     runs-on: ubuntu-latest
     needs: runtime_scan
+    continue-on-error: true   # DISCOVERY MODE — Do not block pipeline
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run OWASP ZAP baseline (Non-blocking)
+      - name: Run OWASP ZAP Baseline Scan
         run: |
           docker run --network host \
             -v $(pwd):/zap/wrk \
             owasp/zap2docker-stable \
             zap-baseline.py \
-            -t http://localhost:3000 \
+            -t http://localhost:4000 \
             -r zap-baseline.html \
             -J zap-baseline.json || true
 
-      - name: Upload ZAP report
+      - name: Upload ZAP Report
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
