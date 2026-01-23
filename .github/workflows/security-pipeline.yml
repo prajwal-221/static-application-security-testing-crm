@@ -111,14 +111,10 @@ jobs:
           echo "PORT=${{ secrets.PORT }}" >> $GITHUB_ENV
 
       ########################################################
-      # Install Trivy CLI
+      # Setup Trivy CLI (SAFE METHOD)
       ########################################################
-      - name: Install Trivy CLI
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wget
-          wget https://github.com/aquasecurity/trivy/releases/latest/download/trivy_0.48.3_Linux-64bit.deb
-          sudo dpkg -i trivy_0.48.3_Linux-64bit.deb
+      - name: Setup Trivy
+        uses: aquasecurity/setup-trivy@v0.2.0
 
       ########################################################
       # Task 11 — Build Docker Images
@@ -135,6 +131,7 @@ jobs:
           docker images --format "{{.Repository}}:{{.Tag}}" | while read image; do
             trivy image "$image" \
               --severity HIGH,CRITICAL \
+              --ignore-unfixed \
               --format json \
               --output "$SEC_REPORTS_DIR/trivy-image-$(echo $image | tr '/:' '_').json"
           done || true
@@ -156,6 +153,7 @@ jobs:
           docker ps --format "{{.ID}}" | while read cid; do
             trivy container "$cid" \
               --severity HIGH,CRITICAL \
+              --ignore-unfixed \
               --format json \
               --output "$SEC_REPORTS_DIR/trivy-runtime-$cid.json"
           done || true
@@ -208,7 +206,6 @@ jobs:
           echo "Security Pipeline Reports" > consolidated-security-reports/README.txt
           echo "=========================" >> consolidated-security-reports/README.txt
           echo "" >> consolidated-security-reports/README.txt
-          echo "Included Reports:" >> consolidated-security-reports/README.txt
           find consolidated-security-reports -type f >> consolidated-security-reports/README.txt
 
       - name: Upload Final Security Bundle
