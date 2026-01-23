@@ -15,7 +15,7 @@ env:
 jobs:
 
   ########################################################
-  # Task 5 & 6 — Secret Scan (Gitleaks)
+  # Secret Scanning — Gitleaks
   ########################################################
   secret_scan:
     runs-on: ubuntu-latest
@@ -31,15 +31,14 @@ jobs:
         with:
           args: detect --report-format json --report-path ${{ env.SEC_REPORTS_DIR }}/gitleaks-report.json
 
-      - name: Upload Gitleaks Report
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: gitleaks-report
           path: security-reports/gitleaks-report.json
 
 
   ########################################################
-  # Task 7 & 8 — SCA Filesystem Scan (Trivy)
+  # SCA — Trivy Filesystem Scan
   ########################################################
   sca_fs_scan:
     runs-on: ubuntu-latest
@@ -54,21 +53,20 @@ jobs:
       - name: Run Trivy FS Scan
         run: |
           mkdir -p $SEC_REPORTS_DIR
-          trivy fs \
+          trivy fs . \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --format json \
-            --output $SEC_REPORTS_DIR/trivy-fs.json .
+            --output $SEC_REPORTS_DIR/trivy-fs.json
 
-      - name: Upload FS Scan Report
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: trivy-fs-report
           path: security-reports/trivy-fs.json
 
 
   ########################################################
-  # Task 9 & 10 — SAST (Semgrep)
+  # SAST — Semgrep
   ########################################################
   sast_scan:
     runs-on: ubuntu-latest
@@ -82,15 +80,14 @@ jobs:
         with:
           config: auto
 
-      - name: Upload Semgrep Report
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: semgrep-report
           path: .semgrep_logs/
 
 
   ########################################################
-  # Docker Security Pipeline (Build → Scan → DAST)
+  # Docker Security Pipeline
   ########################################################
   docker_security_pipeline:
     runs-on: ubuntu-latest
@@ -127,7 +124,7 @@ jobs:
         run: docker compose build
 
       ########################################################
-      # Image Scan
+      # Image Vulnerability Scan
       ########################################################
       - name: Scan Docker Images
         run: |
@@ -142,26 +139,27 @@ jobs:
           done || true
 
       ########################################################
-      # Deploy for DAST
+      # Deploy Stack
       ########################################################
-      - name: Deploy Stack
+      - name: Deploy Application Stack
         run: docker compose up -d
 
       - name: Wait for Startup
         run: sleep 40
 
       ########################################################
-      # Runtime Scan
+      # Runtime Vulnerability Scan (CORRECT METHOD)
       ########################################################
-      - name: Runtime Scan
+      - name: Runtime Vulnerability Scan
         run: |
           docker ps --format "{{.ID}}" | while read cid; do
-            trivy container \
+            image_id=$(docker inspect --format='{{.Image}}' "$cid")
+            trivy image \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
               --format json \
               --output "$SEC_REPORTS_DIR/trivy-runtime-$cid.json" \
-              "$cid"
+              "$image_id"
           done || true
 
       ########################################################
@@ -171,7 +169,7 @@ jobs:
         run: |
           docker run --network host \
             -v $(pwd):/zap/wrk \
-            ghcr.io/zaproxy/zap-stable \
+            owasp/zap2docker-weekly \
             zap-baseline.py \
             -t http://localhost:4000 \
             -r zap-baseline.html \
@@ -180,8 +178,7 @@ jobs:
       ########################################################
       # Upload Docker Security Reports
       ########################################################
-      - name: Upload Docker Security Reports
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: docker-security-reports
           path: |
@@ -191,10 +188,9 @@ jobs:
 
 
   ########################################################
-  # Final Consolidated Security Deliverable
+  # Final Centralized Report
   ########################################################
   final_security_report:
-    name: Centralized Security Deliverables
     runs-on: ubuntu-latest
     needs:
       - secret_scan
@@ -203,8 +199,7 @@ jobs:
       - docker_security_pipeline
 
     steps:
-      - name: Download All Artifacts
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
           path: consolidated-security-reports
 
@@ -215,8 +210,7 @@ jobs:
           echo "" >> consolidated-security-reports/README.txt
           find consolidated-security-reports -type f >> consolidated-security-reports/README.txt
 
-      - name: Upload Final Security Bundle
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
           name: FINAL-SECURITY-DELIVERABLES
           path: consolidated-security-reports
