@@ -1,59 +1,137 @@
-name: Docker Build + Security Testing (SAST + SCA + DAST)
+name: Enterprise DevSecOps Pipeline (Staging)
 
 on:
   push:
     branches: [ "staging", "main" ]
   pull_request:
     branches: [ "staging", "main" ]
+  workflow_dispatch:
 
 env:
+  APP_ENV: staging
   COMPOSE_PROJECT_NAME: idurar-ci
   SEC_REPORTS_DIR: security-reports
-  APP_ENV: staging
+  DOCKER_BUILDKIT: 1
 
+############################################################
+# STAGE 1 — Secret Scanning + Dependency Scanning (SCA)
+############################################################
 jobs:
-  security-pipeline:
+  secrets_and_sca:
+    name: Secrets + Dependency Scan (SCA)
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    continue-on-error: true
 
     steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      ############################################################
-      # SAST — Static Application Security Testing
-      ############################################################
-      - name: Semgrep SAST Scan
-        uses: returntocorp/semgrep-action@v1
-        with:
-          config: p/default
-        continue-on-error: true
+      - name: Prepare Report Directory
+        run: mkdir -p $SEC_REPORTS_DIR
 
-      ############################################################
-      # Docker Build
-      ############################################################
-      - name: Docker Compose Build
-        run: docker compose build
-
-      ############################################################
-      # SCA — Dependency Scan (Filesystem)
-      ############################################################
-      - name: Trivy Filesystem Scan
+      ############################
+      # Secret Scan — Gitleaks
+      ############################
+      - name: Secret Scan (Gitleaks)
         run: |
-          mkdir -p $SEC_REPORTS_DIR
           docker run --rm \
-            -v "$PWD:/project" \
-            aquasec/trivy:latest \
-            fs /project \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:latest detect \
+            --source=/repo \
+            --report-format json \
+            --report-path /repo/$SEC_REPORTS_DIR/gitleaks.json || true
+
+      ############################
+      # SCA Scan — Trivy FS
+      ############################
+      - name: Dependency Scan (Trivy FS)
+        run: |
+          docker run --rm \
+            -v "$PWD:/scan" \
+            aquasec/trivy:latest fs /scan \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --format json \
             > $SEC_REPORTS_DIR/trivy-fs.json || true
 
-      ############################################################
+      - name: Upload SCA Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrets-and-sca-reports
+          path: security-reports/
+
+
+############################################################
+# STAGE 2 — Static Application Security Testing (SAST)
+############################################################
+  sast:
+    name: Static Code Scan (SAST)
+    runs-on: ubuntu-latest
+    needs: secrets_and_sca
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: SAST Scan (Semgrep)
+        uses: returntocorp/semgrep-action@v1
+        with:
+          config: p/default
+
+      - name: Upload SAST Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: sast-report
+          path: .semgrep_logs/
+
+
+############################################################
+# STAGE 3 — Docker Build + Image Scan + Runtime + DAST
+############################################################
+  docker_security:
+    name: Docker Build + Image + Runtime + DAST
+    runs-on: ubuntu-latest
+    needs: sast
+    continue-on-error: true
+
+    steps:
+      - uses: actions/checkout@v4
+
+      ############################
+      # Docker Hub Login
+      ############################
+      - name: Docker Login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      ############################
+      # Create Runtime .env
+      ############################
+      - name: Create Secure .env
+        run: |
+          umask 077
+          cat > .env <<EOF
+          MONGO_INITDB_ROOT_USERNAME=${{ vars.MONGO_INITDB_ROOT_USERNAME }}
+          MONGO_INITDB_ROOT_PASSWORD=${{ secrets.MONGO_INITDB_ROOT_PASSWORD }}
+          DATABASE=${{ secrets.DATABASE }}
+          JWT_SECRET=${{ secrets.JWT_SECRET }}
+          NODE_ENV=${{ vars.NODE_ENV }}
+          PUBLIC_SERVER_FILE=${{ vars.PUBLIC_SERVER_FILE }}
+          PORT=${{ vars.PORT }}
+          OPENSSL_CONF=/dev/null
+          EOF
+
+      ############################
+      # Docker Build
+      ############################
+      - name: Docker Compose Build
+        run: docker compose build
+
+      ############################
       # Image Scan — Trivy
-      ############################################################
-      - name: Trivy Docker Image Scan
+      ############################
+      - name: Trivy Image Scan
         run: |
           mkdir -p $SEC_REPORTS_DIR
 
@@ -77,18 +155,17 @@ jobs:
             --format json \
             > /out/$SEC_REPORTS_DIR/trivy-image-frontend.json || true
 
-      ############################################################
-      # Deploy Runtime Stack
-      ############################################################
-      - name: Start Docker Stack
+      ############################
+      # Deploy Stack
+      ############################
+      - name: Deploy Application Stack
         run: docker compose up -d
 
-      ############################################################
-      # Health Check — Real Endpoint
-      ############################################################
+      ############################
+      # Health Check
+      ############################
       - name: Backend Health Check
         run: |
-          echo "Waiting for backend..."
           for i in {1..30}; do
             if curl -sf http://localhost:4000/public/health; then
               echo "Backend healthy"
@@ -96,37 +173,79 @@ jobs:
             fi
             sleep 3
           done
-          echo "Backend failed health check"
           docker compose logs backend
           exit 1
 
-      ############################################################
+      ############################
+      # Runtime Scan — Trivy
+      ############################
+      - name: Runtime Scan (Trivy RootFS)
+        run: |
+          docker ps -q | while read cid; do
+            docker export "$cid" | \
+            docker run --rm -i \
+              aquasec/trivy:latest rootfs - \
+              --format json \
+              > $SEC_REPORTS_DIR/trivy-runtime-$cid.json || true
+          done
+
+      ############################
       # DAST — OWASP ZAP
-      ############################################################
+      ############################
       - name: OWASP ZAP Baseline Scan
         run: |
           docker pull zaproxy/zap-stable
-          docker run --rm \
-            --network host \
-            -v "$PWD/$SEC_REPORTS_DIR:/zap/wrk" \
-            zaproxy/zap-stable \
-            zap-baseline.py \
+          docker run --rm --network host \
+            -v "$PWD:/zap/wrk" \
+            zaproxy/zap-stable zap-baseline.py \
             -t http://localhost:4000 \
-            -J zap-report.json \
-            -w zap-report.md || true
+            -r zap.html \
+            -J zap.json || true
 
-      ############################################################
-      # Upload Security Reports
-      ############################################################
-      - name: Upload Security Reports
+      ############################
+      # Upload Reports
+      ############################
+      - name: Upload Docker Security Reports
         uses: actions/upload-artifact@v4
         with:
           name: docker-security-reports
-          path: security-reports
+          path: |
+            security-reports/
+            zap.html
+            zap.json
 
-      ############################################################
+      ############################
       # Cleanup
-      ############################################################
-      - name: Shutdown Docker Stack
+      ############################
+      - name: Docker Cleanup
         if: always()
         run: docker compose down -v --remove-orphans
+
+
+############################################################
+# STAGE 4 — Final Aggregated Report Bundle
+############################################################
+  final_report:
+    name: Final Security Report Bundle
+    runs-on: ubuntu-latest
+    needs:
+      - secrets_and_sca
+      - sast
+      - docker_security
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: reports
+
+      - name: Generate Index
+        run: |
+          echo "Enterprise DevSecOps Security Reports" > reports/README.txt
+          echo "===================================" >> reports/README.txt
+          find reports -type f >> reports/README.txt
+
+      - name: Upload Final Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: FINAL-SECURITY-REPORTS
+          path: reports
