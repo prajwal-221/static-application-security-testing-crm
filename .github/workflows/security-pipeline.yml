@@ -48,7 +48,7 @@ jobs:
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --format json \
-            --output /scan/$SEC_REPORTS_DIR/trivy-fs.json || true
+            -o /scan/$SEC_REPORTS_DIR/trivy-fs.json || true
 
       ############################################################
       # Upload Reports
@@ -130,7 +130,7 @@ jobs:
           chmod 600 .env
 
       ############################################################
-      # Build Images (Single Docker Lifecycle)
+      # Build Docker Images (Single Docker Lifecycle)
       ############################################################
       - name: Build Docker Images
         run: docker compose build
@@ -150,7 +150,7 @@ jobs:
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
               --format json \
-              --output /out/$SEC_REPORTS_DIR/trivy-image-$safe.json || true
+              -o /out/$SEC_REPORTS_DIR/trivy-image-$safe.json || true
           done
 
       ############################################################
@@ -176,7 +176,7 @@ jobs:
           exit 1
 
       ############################################################
-      # Runtime Scan — Trivy
+      # Runtime Scan — Trivy (FIXED FLAG)
       ############################################################
       - name: Runtime Container Scan
         run: |
@@ -186,7 +186,7 @@ jobs:
               -v "$PWD:/out" aquasec/trivy:latest \
               container "$cid" \
               --format json \
-              --output /out/$SEC_REPORTS_DIR/trivy-runtime-$cid.json || true
+              -o /out/$SEC_REPORTS_DIR/trivy-runtime-$cid.json || true
           done
 
       ############################################################
