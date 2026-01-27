@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare Reports Directory
-        run: mkdir -p "$SEC_REPORTS_DIR"
+        run: mkdir -p $SEC_REPORTS_DIR
 
       - name: Secret Scan — Gitleaks
         run: |
@@ -48,7 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: secrets-and-sca-reports
-          path: security-reports/
+          path: ${{ env.SEC_REPORTS_DIR }}/
 
 ############################################################
 # STAGE 2 — Static Application Security Testing (SAST)
@@ -92,36 +92,30 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       ############################################################
-      # Secure .env Generation (Safe Echo Method)
+      # Secure .env Generation — FIXED
       ############################################################
       - name: Generate Secure .env
         shell: bash
         run: |
           set -e
           {
-            echo "MONGO_INITDB_ROOT_USERNAME=${{ vars.MONGO_INITDB_ROOT_USERNAME }}"
+            echo "MONGO_INITDB_ROOT_USERNAME=${{ secrets.MONGO_INITDB_ROOT_USERNAME }}"
             echo "MONGO_INITDB_ROOT_PASSWORD=${{ secrets.MONGO_INITDB_ROOT_PASSWORD }}"
             echo "DATABASE=${{ secrets.DATABASE }}"
             echo "JWT_SECRET=${{ secrets.JWT_SECRET }}"
-            echo "NODE_ENV=${{ vars.NODE_ENV }}"
-            echo "PORT=${{ vars.PORT }}"
-            echo "PUBLIC_SERVER_FILE=${{ vars.PUBLIC_SERVER_FILE }}"
+            echo "NODE_ENV=${{ secrets.NODE_ENV }}"
+            echo "PORT=${{ secrets.PORT }}"
+            echo "PUBLIC_SERVER_FILE=${{ secrets.PUBLIC_SERVER_FILE }}"
             echo "OPENSSL_CONF=/dev/null"
           } > .env
 
       ############################################################
-      # Debug — Verify .env Injection (Safe)
+      # Safe Debug — Verify .env Injection
       ############################################################
       - name: Debug — Verify .env Injection (Safe)
-        shell: bash
         run: |
-          echo "===== .env keys loaded ====="
-          sed 's/=.*$/=****/' .env | sort
-
-          echo ""
-          echo "===== Runner environment snapshot ====="
-          env | grep -E 'MONGO|DATABASE|JWT|NODE_ENV|PORT|PUBLIC' \
-            | sed 's/=.*$/=****/' || true
+          echo "===== .env Keys Loaded ====="
+          sed 's/=.*$/=****/' .env
 
       ############################################################
       # Docker Build
@@ -134,20 +128,27 @@ jobs:
       ############################################################
       - name: Trivy Docker Image Scan
         run: |
-          mkdir -p "$SEC_REPORTS_DIR"
+          mkdir -p $SEC_REPORTS_DIR
 
-          for IMAGE in idurar-backend:latest idurar-frontend:latest; do
-            SAFE=$(echo "$IMAGE" | tr '/:' '_')
-            docker run --rm \
-              -v /var/run/docker.sock:/var/run/docker.sock \
-              -v "$PWD:/out" \
-              aquasec/trivy:latest \
-              image "$IMAGE" \
-              --severity HIGH,CRITICAL \
-              --ignore-unfixed \
-              --format json \
-              -o "/out/$SEC_REPORTS_DIR/trivy-image-$SAFE.json" || true
-          done
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/out" \
+            aquasec/trivy:latest \
+            image idurar-backend:latest \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format json \
+            -o /out/$SEC_REPORTS_DIR/trivy-image-backend.json || true
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/out" \
+            aquasec/trivy:latest \
+            image idurar-frontend:latest \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format json \
+            -o /out/$SEC_REPORTS_DIR/trivy-image-frontend.json || true
 
       ############################################################
       # Deploy Stack
@@ -176,10 +177,9 @@ jobs:
         run: docker logs idurar-frontend --tail=200 || true
 
       ############################################################
-      # Backend Health Check (Robust)
+      # Backend Health Check
       ############################################################
       - name: Backend Health Check
-        shell: bash
         run: |
           echo "Waiting for backend to become healthy..."
 
@@ -189,13 +189,12 @@ jobs:
               exit 0
             fi
             echo "Retry $i/60 — backend not ready yet"
-            docker ps -a | grep idurar || true
             sleep 5
           done
 
           echo "Backend failed to start"
-          docker logs idurar-backend --tail=300 || true
-          docker logs idurar-mongodb --tail=300 || true
+          docker logs idurar-backend --tail=200 || true
+          docker logs idurar-mongodb --tail=200 || true
           exit 1
 
       ############################################################
@@ -203,16 +202,21 @@ jobs:
       ############################################################
       - name: Runtime Scan — Trivy
         run: |
-          for IMAGE in idurar-backend:latest idurar-frontend:latest; do
-            SAFE=$(echo "$IMAGE" | tr '/:' '_')
-            docker run --rm \
-              -v /var/run/docker.sock:/var/run/docker.sock \
-              -v "$PWD:/out" \
-              aquasec/trivy:latest \
-              image "$IMAGE" \
-              --format json \
-              -o "/out/$SEC_REPORTS_DIR/trivy-runtime-$SAFE.json" || true
-          done
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/out" \
+            aquasec/trivy:latest \
+            image idurar-backend:latest \
+            --format json \
+            -o /out/$SEC_REPORTS_DIR/trivy-runtime-backend.json || true
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/out" \
+            aquasec/trivy:latest \
+            image idurar-frontend:latest \
+            --format json \
+            -o /out/$SEC_REPORTS_DIR/trivy-runtime-frontend.json || true
 
       ############################################################
       # DAST — OWASP ZAP
@@ -228,7 +232,7 @@ jobs:
             -J zap.json || true
 
       ############################################################
-      # Upload Docker Security Reports
+      # Upload Reports
       ############################################################
       - name: Upload Docker Security Reports
         uses: actions/upload-artifact@v4
