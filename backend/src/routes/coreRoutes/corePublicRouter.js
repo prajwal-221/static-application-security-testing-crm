@@ -1,8 +1,17 @@
 const express = require('express');
 const router = express.Router();
-
 const path = require('path');
 const { isPathInside } = require('../../utils/is-path-inside');
+
+// Health check endpoint
+router.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    service: 'idurar-backend',
+    version: process.env.npm_package_version || '1.0.0'
+  });
+});
 
 router.route('/:subPath/:directory/:file').get(function (req, res) {
   try {

@@ -1,114 +1,57 @@
-version: "3.9"
-
-############################################
-# Secure Docker Compose (CI + Production)
-############################################
+version: '3.8'
 
 services:
-
-  ########################################################
-  # MongoDB (Internal Only)
-  ########################################################
   mongodb:
     image: mongo:6.0
     container_name: idurar-mongodb
-
     environment:
-      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
-      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpassword
       MONGO_INITDB_DATABASE: admin
-
     volumes:
       - mongodb_data:/data/db
       - ./mongodb/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
-
+    ports:
+      - "27017:27017"
     networks:
       - idurar-network
 
-    security_opt:
-      - no-new-privileges:true
-
-    restart: unless-stopped
-
-
-  ########################################################
-  # Backend API (Node.js)
-  ########################################################
   backend:
     build:
       context: ./backend
       dockerfile: Dockerfile
-
     container_name: idurar-backend
-
     environment:
-      NODE_ENV: ${NODE_ENV}
-      PORT: ${PORT}
-      DATABASE: ${DATABASE}
-      JWT_SECRET: ${JWT_SECRET}
-      OPENSSL_CONF: ${OPENSSL_CONF}
-      PUBLIC_SERVER_FILE: ${PUBLIC_SERVER_FILE}
-
-    depends_on:
-      - mongodb
-
+      - NODE_ENV=development
+      - PORT=4000
+      - DATABASE=mongodb://idurar:idurar123@mongodb:27017/idurar
+      - JWT_SECRET=your_jwt_secret_key_here
     ports:
       - "4000:4000"
-
+    depends_on:
+      - mongodb
     networks:
       - idurar-network
-
-    security_opt:
-      - no-new-privileges:true
-
-    read_only: true
-    tmpfs:
-      - /tmp
-
     restart: unless-stopped
 
-
-  ########################################################
-  # Frontend (NGINX + Static Files)
-  ########################################################
   frontend:
     build:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_BACKEND_SERVER: "/"
-
+        - VITE_BACKEND_SERVER=/
     container_name: idurar-frontend
-
     ports:
       - "3000:80"
-
     depends_on:
       - backend
-
     networks:
       - idurar-network
-
-    security_opt:
-      - no-new-privileges:true
-
-    read_only: true
-    tmpfs:
-      - /tmp
-
     restart: unless-stopped
 
-
-############################################
-# Network Isolation
-############################################
 networks:
   idurar-network:
     driver: bridge
 
-
-############################################
-# Volumes
-############################################
 volumes:
   mongodb_data:
