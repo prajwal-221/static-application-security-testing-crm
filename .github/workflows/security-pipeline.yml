@@ -230,6 +230,56 @@ jobs:
             -t http://localhost:4000 \
             -r zap.html \
             -J zap.json || true
+    
+
+############################################################
+# ZAP Active DAST — SAME JOB (Correct Architecture)
+############################################################
+- name: ZAP Active Scan (Live App)
+  run: |
+    mkdir -p security-reports/zap-active
+
+    docker run --rm \
+      --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
+      -v "$PWD/security-reports/zap-active:/zap/wrk" \
+      zaproxy/zap-stable \
+      zap-full-scan.py \
+      -t http://idurar-backend:4000 \
+      -r /zap/wrk/zap-active.html \
+      -J /zap/wrk/zap-active.json || true
+
+############################################################
+# ZAP Authenticated DAST — SAME JOB
+############################################################
+- name: Install jq
+  run: sudo apt-get update && sudo apt-get install -y jq
+
+- name: Obtain JWT Token
+  run: |
+    TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
+      -H "Content-Type: application/json" \
+      -d '{"email":"admin@admin.com","password":"admin123"}' \
+      | jq -r '.token')
+
+    echo "JWT_TOKEN=$TOKEN" >> $GITHUB_ENV
+
+- name: ZAP Authenticated Scan
+  run: |
+    mkdir -p security-reports/zap-auth
+
+    docker run --rm \
+      --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
+      -v "$PWD/security-reports/zap-auth:/zap/wrk" \
+      zaproxy/zap-stable \
+      zap-full-scan.py \
+      -t http://idurar-backend:4000 \
+      -z "-config replacer.full_list(0).description=auth \
+           -config replacer.full_list(0).enabled=true \
+           -config replacer.full_list(0).matchtype=REQ_HEADER \
+           -config replacer.full_list(0).matchstr=Authorization \
+           -config replacer.full_list(0).replacement=Bearer $JWT_TOKEN" \
+      -r /zap/wrk/zap-auth.html || true
+
 
       ############################################################
       # Upload Reports
@@ -239,6 +289,7 @@ jobs:
         with:
           name: docker-security-reports
           path: security-reports/
+        
 
       ############################################################
       # Cleanup
@@ -275,97 +326,6 @@ jobs:
           name: FINAL-SECURITY-REPORTS
           path: reports
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-############################################################
-# STAGE 5 — ZAP Active Scan (Task 17) — FIXED
-############################################################
-  zap_active:
-    name: ZAP Active DAST Scan
-    runs-on: ubuntu-latest
-    needs: docker_security
-    continue-on-error: true
-
-    steps:
-      - name: Debug Docker Networks
-        run: docker network ls
-
-      - name: Run OWASP ZAP Active Scan
-        run: |
-          mkdir -p security-reports/zap-active
-
-          docker run --rm \
-            --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
-            -v "$PWD/security-reports/zap-active:/zap/wrk" \
-            zaproxy/zap-stable \
-            zap-full-scan.py \
-            -t http://idurar-backend:4000 \
-            -r /zap/wrk/zap-active.html \
-            -J /zap/wrk/zap-active.json || true
-
-      - name: Upload Active Scan Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-active-reports
-          path: security-reports/zap-active/
-
-
-############################################################
-# STAGE 6 — AUTHENTICATED DAST (Task 18) — FIXED
-############################################################
-  zap_authenticated:
-    name: ZAP Authenticated DAST Scan
-    runs-on: ubuntu-latest
-    needs: zap_active
-    continue-on-error: true
-
-    steps:
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Obtain JWT Token
-        run: |
-          TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
-            -H "Content-Type: application/json" \
-            -d '{"email":"admin@admin.com","password":"admin123"}' \
-            | jq -r '.token')
-
-          echo "JWT_TOKEN=$TOKEN" >> $GITHUB_ENV
-
-      - name: Run Authenticated ZAP Scan
-        run: |
-          mkdir -p security-reports/zap-auth
-
-          docker run --rm \
-            --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
-            -v "$PWD/security-reports/zap-auth:/zap/wrk" \
-            zaproxy/zap-stable \
-            zap-full-scan.py \
-            -t http://idurar-backend:4000 \
-            -z "-config replacer.full_list(0).description=auth \
-                -config replacer.full_list(0).enabled=true \
-                -config replacer.full_list(0).matchtype=REQ_HEADER \
-                -config replacer.full_list(0).matchstr=Authorization \
-                -config replacer.full_list(0).replacement=Bearer $JWT_TOKEN" \
-            -r /zap/wrk/zap-auth.html || true
-
-      - name: Upload Auth Scan Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: zap-auth-reports
-          path: security-reports/zap-auth/
 
 
 ############################################################
