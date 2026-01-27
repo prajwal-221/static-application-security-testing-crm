@@ -333,9 +333,7 @@ jobs:
     name: Normalize Security Reports
     runs-on: ubuntu-latest
     needs:
-      - final_report
-      - zap_active
-      - zap_authenticated
+      - final_report     
 
     steps:
       - uses: actions/download-artifact@v4
@@ -494,10 +492,9 @@ jobs:
     name: Final Security Report
     runs-on: ubuntu-latest
     needs:
-      - normalize_reports
       - dojo_workflow
       - validation_pipeline
-      - pipeline_documentation
+      - pipeline_documentation   
 
     steps:
       - uses: actions/download-artifact@v4
