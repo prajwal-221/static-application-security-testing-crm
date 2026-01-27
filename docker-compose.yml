@@ -5,8 +5,8 @@ services:
     image: mongo:6.0
     container_name: idurar-mongodb
     environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: rootpassword
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: admin
     volumes:
       - mongodb_data:/data/db
@@ -17,15 +17,16 @@ services:
       - idurar-network
 
   backend:
+    image: idurar-backend:latest
     build:
       context: ./backend
       dockerfile: Dockerfile
     container_name: idurar-backend
     environment:
-      - NODE_ENV=development
-      - PORT=4000
-      - DATABASE=mongodb://idurar:idurar123@mongodb:27017/idurar
-      - JWT_SECRET=your_jwt_secret_key_here
+      - NODE_ENV=${NODE_ENV}
+      - PORT=${PORT}
+      - DATABASE=${DATABASE}
+      - JWT_SECRET=${JWT_SECRET}
     ports:
       - "4000:4000"
     depends_on:
@@ -35,6 +36,7 @@ services:
     restart: unless-stopped
 
   frontend:
+    image: idurar-frontend:latest
     build:
       context: ./frontend
       dockerfile: Dockerfile
