@@ -26,7 +26,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Prepare Reports Directory
-        run: mkdir -p $SEC_REPORTS_DIR
+        run: mkdir -p "$SEC_REPORTS_DIR"
 
       - name: Secret Scan — Gitleaks
         run: |
@@ -48,8 +48,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: secrets-and-sca-reports
-          path: ${{ env.SEC_REPORTS_DIR }}/
-
+          path: security-reports/
 
 ############################################################
 # STAGE 2 — Static Application Security Testing (SAST)
@@ -74,7 +73,6 @@ jobs:
           name: semgrep-report
           path: .semgrep_logs/
 
-
 ############################################################
 # STAGE 3 — Docker Build + Image + Runtime + DAST
 ############################################################
@@ -87,9 +85,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      ############################################################
-      # Docker Login
-      ############################################################
       - name: Docker Login
         uses: docker/login-action@v3
         with:
@@ -97,58 +92,71 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       ############################################################
-      # Secure .env Generation
+      # Secure .env Generation (Safe Echo Method)
       ############################################################
       - name: Generate Secure .env
+        shell: bash
         run: |
-          umask 077
-          cat > .env <<EOF
-          MONGO_INITDB_ROOT_USERNAME=${{ vars.MONGO_INITDB_ROOT_USERNAME }}
-          MONGO_INITDB_ROOT_PASSWORD=${{ secrets.MONGO_INITDB_ROOT_PASSWORD }}
-          DATABASE=${{ secrets.DATABASE }}
-          JWT_SECRET=${{ secrets.JWT_SECRET }}
-          NODE_ENV=${{ vars.NODE_ENV }}
-          PORT=${{ vars.PORT }}
-          PUBLIC_SERVER_FILE=${{ vars.PUBLIC_SERVER_FILE }}
-          OPENSSL_CONF=/dev/null
-          EOF
-          chmod 600 .env
+          set -e
+          {
+            echo "MONGO_INITDB_ROOT_USERNAME=${{ vars.MONGO_INITDB_ROOT_USERNAME }}"
+            echo "MONGO_INITDB_ROOT_PASSWORD=${{ secrets.MONGO_INITDB_ROOT_PASSWORD }}"
+            echo "DATABASE=${{ secrets.DATABASE }}"
+            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}"
+            echo "NODE_ENV=${{ vars.NODE_ENV }}"
+            echo "PORT=${{ vars.PORT }}"
+            echo "PUBLIC_SERVER_FILE=${{ vars.PUBLIC_SERVER_FILE }}"
+            echo "OPENSSL_CONF=/dev/null"
+          } > .env
+
+      ############################################################
+      # Debug — Verify .env Injection (Safe)
+      ############################################################
+      - name: Debug — Verify .env Injection (Safe)
+        shell: bash
+        run: |
+          echo "===== .env keys loaded ====="
+          sed 's/=.*$/=****/' .env | sort
+
+          echo ""
+          echo "===== Runner environment snapshot ====="
+          env | grep -E 'MONGO|DATABASE|JWT|NODE_ENV|PORT|PUBLIC' \
+            | sed 's/=.*$/=****/' || true
 
       ############################################################
       # Docker Build
       ############################################################
       - name: Build Docker Images
-        run: docker compose build
+        run: docker compose --env-file .env build
 
       ############################################################
-      # Docker Image Scan — Trivy
+      # Trivy Image Scan
       ############################################################
       - name: Trivy Docker Image Scan
         run: |
-          mkdir -p $SEC_REPORTS_DIR
+          mkdir -p "$SEC_REPORTS_DIR"
 
           for IMAGE in idurar-backend:latest idurar-frontend:latest; do
             SAFE=$(echo "$IMAGE" | tr '/:' '_')
-            echo "Scanning image: $IMAGE"
-
             docker run --rm \
               -v /var/run/docker.sock:/var/run/docker.sock \
-              -v "$PWD:/out" aquasec/trivy:latest \
+              -v "$PWD:/out" \
+              aquasec/trivy:latest \
               image "$IMAGE" \
               --severity HIGH,CRITICAL \
               --ignore-unfixed \
               --format json \
-              -o /out/$SEC_REPORTS_DIR/trivy-image-$SAFE.json || true
+              -o "/out/$SEC_REPORTS_DIR/trivy-image-$SAFE.json" || true
           done
 
       ############################################################
       # Deploy Stack
       ############################################################
       - name: Deploy Stack
-        run: docker compose up -d
+        run: docker compose --env-file .env up -d
 
       ############################################################
-      # Docker Status Snapshot
+      # Startup Diagnostics
       ############################################################
       - name: Docker Status Snapshot
         run: |
@@ -158,37 +166,20 @@ jobs:
           echo "===== Docker Compose Services ====="
           docker compose ps
 
-      ############################################################
-      # MongoDB Logs + Health
-      ############################################################
-      - name: MongoDB Logs & Health
-        run: |
-          echo "===== MongoDB Logs ====="
-          docker logs idurar-mongodb --tail=100 || true
-          echo ""
-          echo "===== MongoDB Health ====="
-          docker inspect --format='{{.State.Health.Status}}' idurar-mongodb || true
+      - name: MongoDB Logs
+        run: docker logs idurar-mongodb --tail=200 || true
+
+      - name: Backend Logs
+        run: docker logs idurar-backend --tail=200 || true
+
+      - name: Frontend Logs
+        run: docker logs idurar-frontend --tail=200 || true
 
       ############################################################
-      # Backend Logs
-      ############################################################
-      - name: Backend Startup Logs
-        run: |
-          echo "===== Backend Logs ====="
-          docker logs idurar-backend --tail=200 || true
-
-      ############################################################
-      # Frontend Logs
-      ############################################################
-      - name: Frontend Startup Logs
-        run: |
-          echo "===== Frontend Logs ====="
-          docker logs idurar-frontend --tail=200 || true
-
-      ############################################################
-      # Backend Health Check (ROBUST)
+      # Backend Health Check (Robust)
       ############################################################
       - name: Backend Health Check
+        shell: bash
         run: |
           echo "Waiting for backend to become healthy..."
 
@@ -197,39 +188,30 @@ jobs:
               echo "Backend is healthy"
               exit 0
             fi
-
             echo "Retry $i/60 — backend not ready yet"
             docker ps -a | grep idurar || true
             sleep 5
           done
 
-          echo "Backend failed to start within timeout"
-
-          echo "===== Backend Logs ====="
-          docker logs idurar-backend --tail=200 || true
-
-          echo "===== MongoDB Logs ====="
-          docker logs idurar-mongodb --tail=200 || true
-
-          echo "===== Docker Compose Status ====="
-          docker compose ps
-
+          echo "Backend failed to start"
+          docker logs idurar-backend --tail=300 || true
+          docker logs idurar-mongodb --tail=300 || true
           exit 1
 
       ############################################################
-      # Runtime Scan — Trivy (IMAGE MODE)
+      # Runtime Scan — Trivy
       ############################################################
       - name: Runtime Scan — Trivy
         run: |
           for IMAGE in idurar-backend:latest idurar-frontend:latest; do
             SAFE=$(echo "$IMAGE" | tr '/:' '_')
-
             docker run --rm \
               -v /var/run/docker.sock:/var/run/docker.sock \
-              -v "$PWD:/out" aquasec/trivy:latest \
+              -v "$PWD:/out" \
+              aquasec/trivy:latest \
               image "$IMAGE" \
               --format json \
-              -o /out/$SEC_REPORTS_DIR/trivy-runtime-$SAFE.json || true
+              -o "/out/$SEC_REPORTS_DIR/trivy-runtime-$SAFE.json" || true
           done
 
       ############################################################
@@ -252,18 +234,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: docker-security-reports
-          path: |
-            security-reports/
-            security-reports/zap.html
-            security-reports/zap.json
+          path: security-reports/
 
       ############################################################
-      # Cleanup Docker Environment
+      # Cleanup
       ############################################################
       - name: Cleanup Docker
         if: always()
-        run: docker compose down -v --remove-orphans
-
+        run: docker compose --env-file .env down -v --remove-orphans
 
 ############################################################
 # STAGE 4 — Final Aggregated Report
