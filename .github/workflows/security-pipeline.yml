@@ -276,6 +276,19 @@ jobs:
           path: reports
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
 ############################################################
 # STAGE 5 — ZAP Active Scan (Task 17) — FIXED
 ############################################################
@@ -286,12 +299,15 @@ jobs:
     continue-on-error: true
 
     steps:
-      - name: Run OWASP ZAP Active Scan (Live App)
+      - name: Debug Docker Networks
+        run: docker network ls
+
+      - name: Run OWASP ZAP Active Scan
         run: |
           mkdir -p security-reports/zap-active
 
           docker run --rm \
-            --network idurar-network \
+            --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
             -v "$PWD/security-reports/zap-active:/zap/wrk" \
             zaproxy/zap-stable \
             zap-full-scan.py \
@@ -307,7 +323,7 @@ jobs:
 
 
 ############################################################
-# STAGE 6 — AUTHENTICATED DAST (Task 18) — LIVE APP + JWT
+# STAGE 6 — AUTHENTICATED DAST (Task 18) — FIXED
 ############################################################
   zap_authenticated:
     name: ZAP Authenticated DAST Scan
@@ -316,10 +332,11 @@ jobs:
     continue-on-error: true
 
     steps:
+      - name: Install jq
+        run: sudo apt-get update && sudo apt-get install -y jq
+
       - name: Obtain JWT Token
         run: |
-          sudo apt-get update && sudo apt-get install -y jq
-
           TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
             -H "Content-Type: application/json" \
             -d '{"email":"admin@admin.com","password":"admin123"}' \
@@ -332,7 +349,7 @@ jobs:
           mkdir -p security-reports/zap-auth
 
           docker run --rm \
-            --network idurar-network \
+            --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
             -v "$PWD/security-reports/zap-auth:/zap/wrk" \
             zaproxy/zap-stable \
             zap-full-scan.py \
@@ -344,7 +361,7 @@ jobs:
                 -config replacer.full_list(0).replacement=Bearer $JWT_TOKEN" \
             -r /zap/wrk/zap-auth.html || true
 
-      - name: Upload Authenticated Scan Reports
+      - name: Upload Auth Scan Reports
         uses: actions/upload-artifact@v4
         with:
           name: zap-auth-reports
@@ -380,7 +397,7 @@ jobs:
 
 
 ############################################################
-# STAGE 8 — Deploy DefectDojo (Task 20)
+# STAGE 8 — Deploy DefectDojo (Task 20) — FIXED
 ############################################################
   defectdojo_setup:
     name: Setup DefectDojo
@@ -388,12 +405,26 @@ jobs:
     continue-on-error: true
 
     steps:
-      - name: Deploy DefectDojo
+      - name: Start DefectDojo
         run: |
-          docker run -d -p 8080:8080 defectdojo/defectdojo-django:latest || true
+          docker run -d \
+            --name defectdojo \
+            -p 8080:8080 \
+            defectdojo/defectdojo-django
 
-      - name: Wait for Dojo Startup
-        run: sleep 40
+      - name: Wait for DefectDojo to be Ready
+        run: |
+          echo "Waiting for DefectDojo API..."
+          for i in {1..60}; do
+            if curl -sf http://localhost:8080/api/v2/; then
+              echo "DefectDojo is ready"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "DefectDojo failed to start"
+          docker logs defectdojo || true
+          exit 1
 
 
 ############################################################
@@ -413,12 +444,12 @@ jobs:
           name: normalized-reports
           path: dojo-reports
 
-      - name: Upload Reports to DefectDojo API
+      - name: Upload Reports
         run: |
           for file in $(find dojo-reports -type f -name "*.json"); do
             echo "Uploading $file"
 
-            curl -X POST "${{ secrets.DOJO_URL }}/api/v2/import-scan/" \
+            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
               -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
               -F "scan_type=Generic Findings Import" \
               -F "file=@$file" \
@@ -427,7 +458,7 @@ jobs:
 
 
 ############################################################
-# STAGE 10 — Deduplication + SLA Workflow (Task 22) — FIXED
+# STAGE 10 — Dedup + SLA Workflow (Task 22) — FIXED
 ############################################################
   dojo_workflow:
     name: DefectDojo Dedup + SLA
@@ -436,9 +467,9 @@ jobs:
     continue-on-error: true
 
     steps:
-      - name: Trigger Dedup + SLA Workflow
+      - name: Trigger Deduplication + SLA
         run: |
-          curl -X POST "${{ secrets.DOJO_URL }}/api/v2/reimport-scan/" \
+          curl -X POST "http://localhost:8080/api/v2/reimport-scan/" \
             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
             -F "deduplication_on_engagement=true" || true
 
@@ -476,20 +507,19 @@ jobs:
       - name: Create Documentation
         run: |
           mkdir -p documentation
-
           cat <<EOF > documentation/pipeline-blueprint.md
           # Enterprise DevSecOps Pipeline Blueprint
 
           ## Stages:
-          - Secret Scanning
+          - Secrets Scan
           - SCA
           - SAST
-          - Docker Image Scan
+          - Image Scan
           - Runtime Scan
-          - Passive + Active + Authenticated DAST
-          - Normalization
+          - Active + Authenticated DAST
+          - Report Normalization
           - DefectDojo Integration
-          - Reporting
+          - Final Reporting
           EOF
 
       - name: Upload Docs
@@ -516,7 +546,7 @@ jobs:
         with:
           path: all-reports
 
-      - name: Create Master Security Report
+      - name: Create Final Report Index
         run: |
           mkdir -p final-report
           echo "Enterprise DevSecOps Final Security Report" > final-report/FINAL_REPORT.txt
