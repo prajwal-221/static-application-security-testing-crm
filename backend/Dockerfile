@@ -4,18 +4,17 @@ FROM node:20-alpine
 # Create app directory
 WORKDIR /usr/src/app
 
-# Copy package files and .env
+# Copy package files
 COPY package*.json ./
-COPY .env ./
 
 # Install dependencies
 RUN npm install
 
-# Bundle app source
+# Copy app source
 COPY . .
 
-# Expose the port the app runs on
+# Expose port
 EXPOSE 4000
 
-# Command to run the application
+# Run app
 CMD ["sh", "-c", "npm run setup && npm run dev"]
