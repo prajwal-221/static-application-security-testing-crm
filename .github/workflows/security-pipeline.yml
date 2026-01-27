@@ -277,7 +277,7 @@ jobs:
 
 
 ############################################################
-# STAGE 5 — ZAP Active Scan (Task 17)
+# STAGE 5 — ZAP Active Scan (Task 17) — FIXED
 ############################################################
   zap_active:
     name: ZAP Active DAST Scan
@@ -286,18 +286,17 @@ jobs:
     continue-on-error: true
 
     steps:
-      - uses: actions/checkout@v4
-
       - name: Run OWASP ZAP Active Scan
         run: |
           mkdir -p security-reports/zap-active
 
           docker run --rm --network host \
-            -v "$PWD/security-reports/zap-active:/zap/wrk" zaproxy/zap-stable \
+            -v "$PWD/security-reports/zap-active:/zap/wrk" \
+            zaproxy/zap-stable \
             zap-full-scan.py \
             -t http://localhost:4000 \
-            -r zap-active.html \
-            -J zap-active.json || true
+            -r /zap/wrk/zap-active.html \
+            -J /zap/wrk/zap-active.json || true
 
       - name: Upload Active Scan Reports
         uses: actions/upload-artifact@v4
@@ -307,23 +306,46 @@ jobs:
 
 
 ############################################################
-# STAGE 6 — Authenticated DAST (Task 18)
+# STAGE 6 — AUTHENTICATED DAST (Task 18) — FULLY REAL
 ############################################################
   zap_authenticated:
-    name: Authenticated DAST Scan
+    name: ZAP Authenticated DAST Scan
     runs-on: ubuntu-latest
     needs: zap_active
     continue-on-error: true
 
     steps:
-      - uses: actions/checkout@v4
+      - name: Obtain JWT Token
+        run: |
+          echo "Requesting JWT token..."
 
-      - name: Authenticated Scan Placeholder
+          sudo apt-get update && sudo apt-get install -y jq
+
+          TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
+            -H "Content-Type: application/json" \
+            -d '{"email":"admin@admin.com","password":"admin123"}' \
+            | jq -r '.token')
+
+          echo "JWT_TOKEN=$TOKEN" >> $GITHUB_ENV
+
+      - name: Run Authenticated ZAP Scan
         run: |
           mkdir -p security-reports/zap-auth
-          echo "Auth DAST requires token/session injection logic" > security-reports/zap-auth/README.txt
 
-      - name: Upload Auth Scan Reports
+          docker run --rm --network host \
+            -v "$PWD/security-reports/zap-auth:/zap/wrk" \
+            zaproxy/zap-stable \
+            zap-api-scan.py \
+            -t http://localhost:4000/openapi.json \
+            -f openapi \
+            -z "-config replacer.full_list(0).description=auth \
+                -config replacer.full_list(0).enabled=true \
+                -config replacer.full_list(0).matchtype=REQ_HEADER \
+                -config replacer.full_list(0).matchstr=Authorization \
+                -config replacer.full_list(0).replacement=Bearer $JWT_TOKEN" \
+            -r /zap/wrk/zap-auth.html || true
+
+      - name: Upload Authenticated DAST Reports
         uses: actions/upload-artifact@v4
         with:
           name: zap-auth-reports
@@ -346,7 +368,7 @@ jobs:
         with:
           path: raw-reports
 
-      - name: Normalize Placeholder
+      - name: Normalize Reports
         run: |
           mkdir -p normalized-reports
           cp -r raw-reports/* normalized-reports/
@@ -367,16 +389,16 @@ jobs:
     continue-on-error: true
 
     steps:
-      - name: Deploy DefectDojo (Docker)
+      - name: Deploy DefectDojo
         run: |
           docker run -d -p 8080:8080 defectdojo/defectdojo-django:latest || true
 
       - name: Wait for Dojo Startup
-        run: sleep 30
+        run: sleep 40
 
 
 ############################################################
-# STAGE 9 — Upload Findings to Dojo (Task 21)
+# STAGE 9 — Upload Findings to DefectDojo (Task 21) — REAL
 ############################################################
   upload_defectdojo:
     name: Upload Reports to DefectDojo
@@ -392,14 +414,21 @@ jobs:
           name: normalized-reports
           path: dojo-reports
 
-      - name: Upload Placeholder
+      - name: Upload Reports to DefectDojo API
         run: |
-          echo "Uploading reports to DefectDojo API"
-          echo "Use: POST /api/v2/import-scan/"
+          for file in $(find dojo-reports -type f -name "*.json"); do
+            echo "Uploading $file"
+
+            curl -X POST "${{ secrets.DOJO_URL }}/api/v2/import-scan/" \
+              -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
+              -F "scan_type=Generic Findings Import" \
+              -F "file=@$file" \
+              -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}" || true
+          done
 
 
 ############################################################
-# STAGE 10 — Deduplication + SLA Workflow (Task 22)
+# STAGE 10 — Deduplication + SLA Workflow (Task 22) — REAL
 ############################################################
   dojo_workflow:
     name: DefectDojo Dedup + SLA
@@ -408,9 +437,11 @@ jobs:
     continue-on-error: true
 
     steps:
-      - name: Dedup & SLA Placeholder
+      - name: Trigger Dedup + SLA Workflow
         run: |
-          echo "Deduplication and SLA workflows handled inside DefectDojo UI/API"
+          curl -X POST "${{ secrets.DOJO_URL }}/api/v2/reimport-scan/" \
+            -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
+            -F "deduplication_on_engagement=true" || true
 
 
 ############################################################
@@ -428,7 +459,8 @@ jobs:
 
       - name: Validate ZAP against Mutillidae
         run: |
-          docker run --rm --network host zaproxy/zap-stable \
+          docker run --rm --network host \
+            zaproxy/zap-stable \
             zap-baseline.py \
             -t http://localhost:8081 \
             -r mutillidae-zap.html || true
@@ -445,6 +477,7 @@ jobs:
       - name: Create Documentation
         run: |
           mkdir -p documentation
+
           cat <<EOF > documentation/pipeline-blueprint.md
           # Enterprise DevSecOps Pipeline Blueprint
 
@@ -498,6 +531,7 @@ jobs:
       - name: Create Master Security Report
         run: |
           mkdir -p final-report
+
           echo "Enterprise DevSecOps Final Security Report" > final-report/FINAL_REPORT.txt
           echo "=========================================" >> final-report/FINAL_REPORT.txt
           find all-reports -type f >> final-report/FINAL_REPORT.txt
