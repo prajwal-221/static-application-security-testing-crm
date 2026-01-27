@@ -87,6 +87,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      ############################################################
+      # Docker Login
+      ############################################################
       - name: Docker Login
         uses: docker/login-action@v3
         with:
@@ -118,37 +121,69 @@ jobs:
         run: docker compose build
 
       ############################################################
-      # Trivy Image Scan — FIXED
+      # Docker Image Scan — Trivy
       ############################################################
       - name: Trivy Docker Image Scan
         run: |
           mkdir -p $SEC_REPORTS_DIR
 
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD/$SEC_REPORTS_DIR:/out" \
-            aquasec/trivy:latest \
-            image idurar-backend:latest \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            --format json \
-            > "$SEC_REPORTS_DIR/trivy-image-backend.json" || true
+          for IMAGE in idurar-backend:latest idurar-frontend:latest; do
+            SAFE=$(echo "$IMAGE" | tr '/:' '_')
+            echo "Scanning image: $IMAGE"
 
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD/$SEC_REPORTS_DIR:/out" \
-            aquasec/trivy:latest \
-            image idurar-frontend:latest \
-            --severity HIGH,CRITICAL \
-            --ignore-unfixed \
-            --format json \
-            > "$SEC_REPORTS_DIR/trivy-image-frontend.json" || true
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$PWD:/out" aquasec/trivy:latest \
+              image "$IMAGE" \
+              --severity HIGH,CRITICAL \
+              --ignore-unfixed \
+              --format json \
+              -o /out/$SEC_REPORTS_DIR/trivy-image-$SAFE.json || true
+          done
 
       ############################################################
-      # Deploy Application Stack
+      # Deploy Stack
       ############################################################
       - name: Deploy Stack
         run: docker compose up -d
+
+      ############################################################
+      # Docker Status Snapshot
+      ############################################################
+      - name: Docker Status Snapshot
+        run: |
+          echo "===== Docker Containers ====="
+          docker ps -a
+          echo ""
+          echo "===== Docker Compose Services ====="
+          docker compose ps
+
+      ############################################################
+      # MongoDB Logs + Health
+      ############################################################
+      - name: MongoDB Logs & Health
+        run: |
+          echo "===== MongoDB Logs ====="
+          docker logs idurar-mongodb --tail=100 || true
+          echo ""
+          echo "===== MongoDB Health ====="
+          docker inspect --format='{{.State.Health.Status}}' idurar-mongodb || true
+
+      ############################################################
+      # Backend Logs
+      ############################################################
+      - name: Backend Startup Logs
+        run: |
+          echo "===== Backend Logs ====="
+          docker logs idurar-backend --tail=200 || true
+
+      ############################################################
+      # Frontend Logs
+      ############################################################
+      - name: Frontend Startup Logs
+        run: |
+          echo "===== Frontend Logs ====="
+          docker logs idurar-frontend --tail=200 || true
 
       ############################################################
       # Backend Health Check (ROBUST)
@@ -162,35 +197,40 @@ jobs:
               echo "Backend is healthy"
               exit 0
             fi
-            echo "Backend not ready yet... retry $i/60"
+
+            echo "Retry $i/60 — backend not ready yet"
+            docker ps -a | grep idurar || true
             sleep 5
           done
 
           echo "Backend failed to start within timeout"
+
+          echo "===== Backend Logs ====="
+          docker logs idurar-backend --tail=200 || true
+
+          echo "===== MongoDB Logs ====="
+          docker logs idurar-mongodb --tail=200 || true
+
+          echo "===== Docker Compose Status ====="
           docker compose ps
-          docker compose logs backend
+
           exit 1
 
       ############################################################
-      # Runtime Scan — Trivy (IMAGE BASED)
+      # Runtime Scan — Trivy (IMAGE MODE)
       ############################################################
       - name: Runtime Scan — Trivy
         run: |
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD/$SEC_REPORTS_DIR:/out" \
-            aquasec/trivy:latest \
-            image idurar-backend:latest \
-            --format json \
-            > "$SEC_REPORTS_DIR/trivy-runtime-backend.json" || true
+          for IMAGE in idurar-backend:latest idurar-frontend:latest; do
+            SAFE=$(echo "$IMAGE" | tr '/:' '_')
 
-          docker run --rm \
-            -v /var/run/docker.sock:/var/run/docker.sock \
-            -v "$PWD/$SEC_REPORTS_DIR:/out" \
-            aquasec/trivy:latest \
-            image idurar-frontend:latest \
-            --format json \
-            > "$SEC_REPORTS_DIR/trivy-runtime-frontend.json" || true
+            docker run --rm \
+              -v /var/run/docker.sock:/var/run/docker.sock \
+              -v "$PWD:/out" aquasec/trivy:latest \
+              image "$IMAGE" \
+              --format json \
+              -o /out/$SEC_REPORTS_DIR/trivy-runtime-$SAFE.json || true
+          done
 
       ############################################################
       # DAST — OWASP ZAP
