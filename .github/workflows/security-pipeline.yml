@@ -219,12 +219,12 @@ jobs:
             -o /out/$SEC_REPORTS_DIR/trivy-runtime-frontend.json || true
 
       ############################################################
-      # DAST — OWASP ZAP Baseline (FIXED)
+      # DAST — OWASP ZAP Baseline (FIXED + SAFE)
       ############################################################
       - name: OWASP ZAP Baseline
         run: |
           mkdir -p security-reports/zap-baseline
-          chmod -R 777 security-reports
+          chmod 777 security-reports/zap-baseline
           
           docker pull zaproxy/zap-stable
 
@@ -239,12 +239,12 @@ jobs:
             -J zap-baseline.json || true
 
       ############################################################
-      # ZAP Active DAST — FIXED
+      # ZAP Active DAST — FIXED + SAFE
       ############################################################
       - name: ZAP Active Scan (Live App)
         run: |
           mkdir -p security-reports/zap-active
-          chmod -R 777 security-reports
+          chmod 777 security-reports/zap-active
 
           docker run --rm \
             -u root \
@@ -257,12 +257,12 @@ jobs:
             -J zap-active.json || true
 
       ############################################################
-      # ZAP Authenticated DAST — FIXED
+      # ZAP Authenticated DAST — FIXED + SAFE
       ############################################################
       - name: ZAP Authenticated Scan
         run: |
           mkdir -p security-reports/zap-auth
-          chmod -R 777 security-reports
+          chmod 777 security-reports/zap-auth
 
           docker run --rm \
             -u root \
