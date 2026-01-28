@@ -444,7 +444,6 @@ jobs:
     name: Final Security Report
     runs-on: ubuntu-latest
     needs:
-      - defectdojo_workflow
       - validation_pipeline
       - pipeline_documentation   
 
