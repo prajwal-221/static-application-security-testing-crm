@@ -272,7 +272,7 @@ jobs:
             -o /out/$SEC_REPORTS_DIR/trivy-runtime-frontend.json || true
 
       ############################################################
-      # DAST — OWASP ZAP Baseline (FIXED + SAFE)
+      # DAST — OWASP ZAP Baseline (DefectDojo Compatible)
       ############################################################
       - name: OWASP ZAP Baseline
         run: |
@@ -289,10 +289,10 @@ jobs:
             zap-baseline.py \
             -t http://localhost:4000 \
             -r zap-baseline.html \
-            -J zap-baseline.json || true
+            -x zap-baseline.xml || true
 
       ############################################################
-      # ZAP Active DAST — FIXED + SAFE
+      # ZAP Active DAST — DefectDojo Compatible
       ############################################################
       - name: ZAP Active Scan (Live App)
         run: |
@@ -307,10 +307,10 @@ jobs:
             zap-full-scan.py \
             -t http://idurar-backend:4000 \
             -r zap-active.html \
-            -J zap-active.json || true
+            -x zap-active.xml || true
 
       ############################################################
-      # ZAP Authenticated DAST — FIXED + SAFE
+      # ZAP Authenticated DAST — DefectDojo Compatible
       ############################################################
       - name: ZAP Authenticated Scan
         run: |
@@ -330,7 +330,7 @@ jobs:
                  -config replacer.full_list(0).matchstr=Authorization \
                  -config replacer.full_list(0).replacement=Bearer $JWT_TOKEN" \
             -r zap-auth.html \
-            -J zap-auth.json || true
+            -x zap-auth.xml || true
 
 
       ############################################################
@@ -468,9 +468,9 @@ jobs:
           done
 
           #############################
-          # ZAP (DAST)
+          # ZAP (DAST) — XML ONLY
           #############################
-          find dojo-reports -type f -name "zap-*.json" | while read f; do
+          find dojo-reports -type f -name "zap-*.xml" | while read f; do
             upload "ZAP Scan" "$f"
           done
 
