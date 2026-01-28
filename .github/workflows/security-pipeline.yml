@@ -219,26 +219,31 @@ jobs:
             -o /out/$SEC_REPORTS_DIR/trivy-runtime-frontend.json || true
 
       ############################################################
-      # DAST — OWASP ZAP Baseline
+      # DAST — OWASP ZAP Baseline (FIXED PERMISSIONS)
       ############################################################
       - name: OWASP ZAP Baseline
         run: |
           docker pull zaproxy/zap-stable
-          docker run --rm --network host \
-            -v "$PWD/$SEC_REPORTS_DIR:/zap/wrk" zaproxy/zap-stable \
+
+          docker run --rm \
+            --user root \
+            --network host \
+            -v "$PWD/$SEC_REPORTS_DIR:/zap/wrk" \
+            zaproxy/zap-stable \
             zap-baseline.py \
             -t http://localhost:4000 \
-            -r zap.html \
-            -J zap.json || true
+            -r /zap/wrk/zap.html \
+            -J /zap/wrk/zap.json || true
 
       ############################################################
-      # ZAP Active DAST — SAME JOB (Correct Architecture)
+      # ZAP Active DAST — SAME JOB (FIXED PERMISSIONS)
       ############################################################
       - name: ZAP Active Scan (Live App)
         run: |
           mkdir -p security-reports/zap-active
 
           docker run --rm \
+            --user root \
             --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
             -v "$PWD/security-reports/zap-active:/zap/wrk" \
             zaproxy/zap-stable \
@@ -248,25 +253,14 @@ jobs:
             -J /zap/wrk/zap-active.json || true
 
       ############################################################
-      # ZAP Authenticated DAST — SAME JOB
+      # ZAP Authenticated DAST — SAME JOB (FIXED PERMISSIONS)
       ############################################################
-      - name: Install jq
-        run: sudo apt-get update && sudo apt-get install -y jq
-
-      - name: Obtain JWT Token
-        run: |
-          TOKEN=$(curl -s -X POST http://localhost:4000/api/auth/login \
-            -H "Content-Type: application/json" \
-            -d '{"email":"admin@admin.com","password":"admin123"}' \
-            | jq -r '.token')
-
-          echo "JWT_TOKEN=$TOKEN" >> $GITHUB_ENV
-
       - name: ZAP Authenticated Scan
         run: |
           mkdir -p security-reports/zap-auth
 
           docker run --rm \
+            --user root \
             --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
             -v "$PWD/security-reports/zap-auth:/zap/wrk" \
             zaproxy/zap-stable \
@@ -278,6 +272,7 @@ jobs:
                  -config replacer.full_list(0).matchstr=Authorization \
                  -config replacer.full_list(0).replacement=Bearer $JWT_TOKEN" \
             -r /zap/wrk/zap-auth.html || true
+
 
       ############################################################
       # Upload Reports
