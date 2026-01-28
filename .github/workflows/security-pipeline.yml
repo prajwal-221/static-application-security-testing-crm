@@ -328,29 +328,35 @@ jobs:
 
 
 ############################################################
-# STAGE 7 — Normalize Reports (Task 19)
+# STAGE 7 — Normalize Reports (Python Engine)
 ############################################################
-  normalize_reports:
-    name: Normalize Security Reports
-    runs-on: ubuntu-latest
-    needs:
-      - final_report     
+normalize_reports:
+  name: Normalize Security Reports
+  runs-on: ubuntu-latest
+  needs: final_report
 
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: raw-reports
+  steps:
+    - uses: actions/checkout@v4
 
-      - name: Normalize Reports
-        run: |
-          mkdir -p normalized-reports
-          cp -r raw-reports/* normalized-reports/
+    - name: Download Raw Reports
+      uses: actions/download-artifact@v4
+      with:
+        path: raw-reports
 
-      - name: Upload Normalized Reports
-        uses: actions/upload-artifact@v4
-        with:
-          name: normalized-reports
-          path: normalized-reports/
+    - name: Setup Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Normalize Reports
+      run: |
+        python scripts/normalize_reports.py
+
+    - name: Upload Normalized Reports
+      uses: actions/upload-artifact@v4
+      with:
+        name: normalized-reports
+        path: normalized-reports/
 
 
 ############################################################
@@ -388,12 +394,30 @@ jobs:
   validation_pipeline:
     name: Pipeline Validation using Mutillidae
     runs-on: ubuntu-latest
+    needs:
+      - docker_security
+      - normalize_reports
+      - defectdojo_upload
     continue-on-error: true
 
     steps:
       - name: Run Mutillidae Vulnerable App
         run: |
           docker run -d -p 8081:80 citizenstig/nowasp
+
+      - name: Wait for Mutillidae to Start
+        run: |
+          echo "Waiting for Mutillidae..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8081; then
+              echo "Mutillidae is ready"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Mutillidae failed to start"
+          docker logs $(docker ps -q) || true
+          exit 1
 
       - name: Validate ZAP against Mutillidae
         run: |
@@ -402,6 +426,7 @@ jobs:
             zap-baseline.py \
             -t http://localhost:8081 \
             -r mutillidae-zap.html || true
+
 
 
 ############################################################
@@ -444,8 +469,11 @@ jobs:
     name: Final Security Report
     runs-on: ubuntu-latest
     needs:
+      - docker_security
+      - normalize_reports
+      - defectdojo_upload
       - validation_pipeline
-      - pipeline_documentation   
+      - pipeline_documentation
 
     steps:
       - uses: actions/download-artifact@v4
