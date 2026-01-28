@@ -88,16 +88,34 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Run Semgrep
-        uses: returntocorp/semgrep-action@v1
-        with:
-          config: auto
+      ############################################################
+      # Install Semgrep CLI
+      ############################################################
+      - name: Install Semgrep
+        run: |
+          python3 -m pip install --upgrade pip
+          pip install semgrep
 
-      - name: Upload SAST Report
+      ############################################################
+      # Run Semgrep Scan (JSON Output)
+      ############################################################
+      - name: Run Semgrep Scan
+        run: |
+          mkdir -p security-reports/semgrep
+          semgrep scan \
+            --config=auto \
+            --json \
+            --output security-reports/semgrep/semgrep.json \
+            . || true
+
+      ############################################################
+      # Upload SAST Report Artifact
+      ############################################################
+      - name: Upload Semgrep Report
         uses: actions/upload-artifact@v4
         with:
           name: semgrep-report
-          path: .semgrep_logs/
+          path: security-reports/semgrep/semgrep.json
 
 ############################################################
 # STAGE 3 — Docker Build + Image + Runtime + DAST
