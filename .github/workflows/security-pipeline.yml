@@ -375,6 +375,7 @@ jobs:
 
     - name: Normalize Reports
       run: |
+        mkdir -p normalized-reports
         python scripts/normalize_reports.py
 
     - name: Upload Normalized Reports
