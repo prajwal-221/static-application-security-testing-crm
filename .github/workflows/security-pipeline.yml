@@ -412,7 +412,7 @@ jobs:
         path: normalized-reports/
 
 ############################################################
-# STAGE 8 — Upload Reports to Public DefectDojo
+# STAGE 8 — Upload Reports to Public DefectDojo (Correct)
 ############################################################
   defectdojo_upload:
     name: Upload Reports to DefectDojo (Public)
@@ -428,16 +428,52 @@ jobs:
           path: dojo-reports
 
       - name: Upload Reports to DefectDojo
+        shell: bash
         run: |
-          for file in $(find dojo-reports -type f -name "*.json"); do
-            echo "Uploading $file"
+          set -e
 
-            curl -X POST "https://demo.defectdojo.org/api/v2/import-scan/" \
+          upload() {
+            local scan_type="$1"
+            local file="$2"
+
+            echo "Uploading [$scan_type] → $file"
+
+            curl -s -X POST "https://demo.defectdojo.org/api/v2/import-scan/" \
               -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-              -F "scan_type=Generic Findings Import" \
+              -F "scan_type=$scan_type" \
               -F "file=@$file" \
-              -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}" || true
+              -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}" \
+              -F "close_old_findings=false"
+          }
+
+          #############################
+          # Semgrep (SAST)
+          #############################
+          find dojo-reports -type f -name "semgrep.json" | while read f; do
+            upload "Semgrep JSON Report" "$f"
           done
+
+          #############################
+          # Trivy (SCA + Image + Runtime)
+          #############################
+          find dojo-reports -type f -name "trivy-*.json" | while read f; do
+            upload "Trivy Scan" "$f"
+          done
+
+          #############################
+          # Gitleaks (Secrets)
+          #############################
+          find dojo-reports -type f -name "gitleaks.json" | while read f; do
+            upload "Gitleaks Scan" "$f"
+          done
+
+          #############################
+          # ZAP (DAST)
+          #############################
+          find dojo-reports -type f -name "zap-*.json" | while read f; do
+            upload "ZAP Scan" "$f"
+          done
+
 
 
 ############################################################
