@@ -435,6 +435,11 @@ jobs:
   pipeline_documentation:
     name: Generate Pipeline Documentation
     runs-on: ubuntu-latest
+    needs:
+      - docker_security
+      - normalize_reports
+      - defectdojo_upload
+      - validation_pipeline
 
     steps:
       - name: Create Documentation
