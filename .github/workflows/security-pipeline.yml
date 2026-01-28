@@ -25,25 +25,51 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      ############################################################
+      # Prepare Report Directory
+      ############################################################
       - name: Prepare Reports Directory
         run: mkdir -p $SEC_REPORTS_DIR
 
+      ############################################################
+      # Secret Scan — Gitleaks
+      ############################################################
       - name: Secret Scan — Gitleaks
         run: |
-          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:latest \
             detect --source=/repo \
             --report-format json \
             --report-path /repo/$SEC_REPORTS_DIR/gitleaks.json || true
 
+      ############################################################
+      # Dependency Scan — Trivy FS (FIXED)
+      ############################################################
       - name: Dependency Scan — Trivy FS
         run: |
-          docker run --rm -v "$PWD:/scan" aquasec/trivy:latest \
+          mkdir -p $SEC_REPORTS_DIR
+
+          docker run --rm \
+            -v "$PWD:/scan" \
+            aquasec/trivy:latest \
             fs /scan \
             --severity HIGH,CRITICAL \
             --ignore-unfixed \
             --format json \
-            > /scan/$SEC_REPORTS_DIR/trivy-fs.json || true
+            -o /scan/$SEC_REPORTS_DIR/trivy-fs.json || true
 
+      ############################################################
+      # Verify Reports Generated (Best Practice)
+      ############################################################
+      - name: Verify Reports Generated
+        run: |
+          echo "===== Generated Security Reports ====="
+          ls -lh $SEC_REPORTS_DIR || true
+
+      ############################################################
+      # Upload SCA Reports
+      ############################################################
       - name: Upload SCA Reports
         uses: actions/upload-artifact@v4
         with:
