@@ -354,98 +354,53 @@ jobs:
 
 
 ############################################################
-# STAGE 8+9+10 — DefectDojo Full Pipeline (FIXED PROPERLY)
+# STAGE 8 — Upload Reports to Public DefectDojo
 ############################################################
-  defectdojo_pipeline:
-    name: DefectDojo Full Pipeline
+  defectdojo_upload:
+    name: Upload Reports to DefectDojo (Public)
     runs-on: ubuntu-latest
     needs: normalize_reports
     continue-on-error: true
 
     steps:
-      - uses: actions/checkout@v4
-
-      ############################################################
-      # Download Normalized Reports
-      ############################################################
       - name: Download Normalized Reports
         uses: actions/download-artifact@v4
         with:
           name: normalized-reports
           path: dojo-reports
 
-      ############################################################
-      # Clone DefectDojo Stack
-      ############################################################
-      - name: Clone DefectDojo Docker Setup
-        run: |
-          git clone https://github.com/DefectDojo/django-DefectDojo.git defectdojo
-
-      ############################################################
-      # Start DefectDojo Properly (BOOTSTRAP FIX)
-      ############################################################
-      - name: Start DefectDojo (Correct Bootstrap)
-        run: |
-          cd defectdojo
-          chmod +x dc-up-d.sh
-          ./dc-up-d.sh
-
-      ############################################################
-      # Wait for DefectDojo API (EXTENDED WAIT)
-      ############################################################
-      - name: Wait for DefectDojo API
-        run: |
-          echo "Waiting for DefectDojo API..."
-          for i in {1..180}; do
-            if curl -sf http://localhost:8080/api/v2/; then
-              echo "DefectDojo is ready"
-              exit 0
-            fi
-            echo "Retry $i/180..."
-            sleep 5
-          done
-
-          echo "DefectDojo failed to start"
-          cd defectdojo && docker compose logs
-          exit 1
-
-      ############################################################
-      # Upload Reports to DefectDojo
-      ############################################################
       - name: Upload Reports to DefectDojo
         run: |
           for file in $(find dojo-reports -type f -name "*.json"); do
             echo "Uploading $file"
 
-            curl -X POST "http://localhost:8080/api/v2/import-scan/" \
+            curl -X POST "https://demo.defectdojo.org/api/v2/import-scan/" \
               -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
               -F "scan_type=Generic Findings Import" \
               -F "file=@$file" \
               -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}" || true
           done
 
-      ############################################################
-      # Trigger Dedup + SLA Workflow
-      ############################################################
+############################################################
+# STAGE 9 — Trigger Dedup + SLA Workflow
+############################################################
+  defectdojo_workflow:
+    name: DefectDojo Dedup + SLA
+    runs-on: ubuntu-latest
+    needs: defectdojo_upload
+    continue-on-error: true
+
+    steps:
       - name: Trigger Deduplication + SLA
         run: |
-          curl -X POST "http://localhost:8080/api/v2/reimport-scan/" \
+          curl -X POST "https://demo.defectdojo.org/api/v2/reimport-scan/" \
             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
             -F "deduplication_on_engagement=true" || true
-
-      ############################################################
-      # Cleanup DefectDojo
-      ############################################################
-      - name: Cleanup DefectDojo Stack
-        if: always()
-        run: |
-          cd defectdojo
-          docker compose down -v
 
 
 
 ############################################################
-# STAGE 11 — Validation Pipeline using Mutillidae (Task 23)
+# STAGE 10 — Validation Pipeline using Mutillidae (Task 23)
 ############################################################
   validation_pipeline:
     name: Pipeline Validation using Mutillidae
@@ -467,7 +422,7 @@ jobs:
 
 
 ############################################################
-# STAGE 12 — Documentation Artifact (Task 24)
+# STAGE 11 — Documentation Artifact (Task 24)
 ############################################################
   pipeline_documentation:
     name: Generate Pipeline Documentation
@@ -500,13 +455,13 @@ jobs:
 
 
 ############################################################
-# STAGE 13 — Final Security Report (Task 25)
+# STAGE 12 — Final Security Report (Task 25)
 ############################################################
   final_security_report:
     name: Final Security Report
     runs-on: ubuntu-latest
     needs:
-      - defectdojo_pipeline
+      - defectdojo_workflow
       - validation_pipeline
       - pipeline_documentation   
 
