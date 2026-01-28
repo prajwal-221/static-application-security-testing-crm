@@ -352,16 +352,15 @@ jobs:
           path: reports
 
 
-
 ############################################################
 # STAGE 7 — Normalize Reports (Python Engine)
 ############################################################
-  normalize_reports:
-    name: Normalize Security Reports
-    runs-on: ubuntu-latest
-    needs: final_report
+normalize_reports:
+  name: Normalize Security Reports
+  runs-on: ubuntu-latest
+  needs: final_report
 
-    steps:
+  steps:
     - uses: actions/checkout@v4
 
     - name: Download Raw Reports
@@ -383,7 +382,6 @@ jobs:
       with:
         name: normalized-reports
         path: normalized-reports/
-
 
 ############################################################
 # STAGE 8 — Upload Reports to Public DefectDojo
