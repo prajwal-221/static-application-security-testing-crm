@@ -878,7 +878,6 @@ jobs:
           path: final-report/
 
 
-
 ############################################################
 # STAGE 12 — DefectDojo Enterprise Intelligence Upload (FIXED)
 ############################################################
@@ -927,11 +926,10 @@ jobs:
           import re, json, subprocess
 
           text = open("final-report/final-security-report.md", "r", encoding="utf-8").read()
-
           m = re.search(r"# 1\. Executive Summary(.*?)# 2\.", text, re.S)
           summary = m.group(1).strip() if m else "Executive summary not found."
 
-          payload = json.dumps({"note": summary})
+          payload = json.dumps({"entry": summary})
 
           subprocess.run([
               "curl", "-s", "-X", "POST",
@@ -954,11 +952,10 @@ jobs:
           import re, json, subprocess
 
           text = open("final-report/final-security-report.md", "r", encoding="utf-8").read()
-
           m = re.search(r"# 5\. Security Recommendations Roadmap(.*?)# 6\.", text, re.S)
           roadmap = m.group(1).strip() if m else "Remediation roadmap not found."
 
-          payload = json.dumps({"note": roadmap})
+          payload = json.dumps({"entry": roadmap})
 
           subprocess.run([
               "curl", "-s", "-X", "POST",
@@ -981,11 +978,10 @@ jobs:
           import re, json, subprocess
 
           text = open("final-report/final-security-report.md", "r", encoding="utf-8").read()
-
           m = re.search(r"# 8\. Final Security Verdict(.*?)# 9\.", text, re.S)
           verdict = m.group(1).strip() if m else "Final verdict not found."
 
-          payload = json.dumps({"note": verdict})
+          payload = json.dumps({"entry": verdict})
 
           subprocess.run([
               "curl", "-s", "-X", "POST",
@@ -995,4 +991,3 @@ jobs:
               "-d", payload
           ], check=True)
           EOF
-
