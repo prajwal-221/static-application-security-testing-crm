@@ -556,7 +556,7 @@ jobs:
 
 
 ############################################################
-# STAGE 11 — Final Enterprise Security Report Generator
+# STAGE 11 — Final Security Report Generator
 ############################################################
   final_security_report:
     name: Generate Final Enterprise Security Report
@@ -905,6 +905,8 @@ jobs:
         run: |
           set -e
 
+          echo "Uploading full enterprise report to DefectDojo..."
+
           curl -s -X POST "https://demo.defectdojo.org/api/v2/files/" \
             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
             -F "file=@final-report/final-security-report.md" \
@@ -920,32 +922,12 @@ jobs:
         run: |
           set -e
 
-          python3 << 'EOF'
-          import re, json, subprocess, os
+          SUMMARY=$(sed -n '/# 1. Executive Summary/,/# 2./p' final-report/final-security-report.md)
 
-          ENG = os.environ["DOJO_ENGAGEMENT_ID"]
-          TOKEN = os.environ["DOJO_API_KEY"]
-
-          text = open("final-report/final-security-report.md","r",encoding="utf-8").read()
-          m = re.search(r"# 1\. Executive Summary(.*?)# 2\.", text, re.S)
-          summary = m.group(1).strip() if m else "Executive summary not found."
-
-          payload = json.dumps({
-              "entry": summary,
-              "engagement": int(ENG)
-          })
-
-          subprocess.run([
-              "curl","-s","-X","POST",
-              "https://demo.defectdojo.org/api/v2/notes/",
-              "-H",f"Authorization: Token {TOKEN}",
-              "-H","Content-Type: application/json",
-              "-d",payload
-          ], check=True)
-          EOF
-        env:
-          DOJO_API_KEY: ${{ secrets.DOJO_API_KEY }}
-          DOJO_ENGAGEMENT_ID: ${{ secrets.DOJO_ENGAGEMENT_ID }}
+          curl -s -X POST "https://demo.defectdojo.org/api/v2/notes/" \
+            -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
+            -F "entry=$SUMMARY" \
+            -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
 
       ############################################################
       # Upload Remediation Roadmap
@@ -955,32 +937,12 @@ jobs:
         run: |
           set -e
 
-          python3 << 'EOF'
-          import re, json, subprocess, os
+          ROADMAP=$(sed -n '/# 5. Security Recommendations Roadmap/,/# 6./p' final-report/final-security-report.md)
 
-          ENG = os.environ["DOJO_ENGAGEMENT_ID"]
-          TOKEN = os.environ["DOJO_API_KEY"]
-
-          text = open("final-report/final-security-report.md","r",encoding="utf-8").read()
-          m = re.search(r"# 5\. Security Recommendations Roadmap(.*?)# 6\.", text, re.S)
-          roadmap = m.group(1).strip() if m else "Remediation roadmap not found."
-
-          payload = json.dumps({
-              "entry": roadmap,
-              "engagement": int(ENG)
-          })
-
-          subprocess.run([
-              "curl","-s","-X","POST",
-              "https://demo.defectdojo.org/api/v2/notes/",
-              "-H",f"Authorization: Token {TOKEN}",
-              "-H","Content-Type: application/json",
-              "-d",payload
-          ], check=True)
-          EOF
-        env:
-          DOJO_API_KEY: ${{ secrets.DOJO_API_KEY }}
-          DOJO_ENGAGEMENT_ID: ${{ secrets.DOJO_ENGAGEMENT_ID }}
+          curl -s -X POST "https://demo.defectdojo.org/api/v2/notes/" \
+            -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
+            -F "entry=$ROADMAP" \
+            -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
 
       ############################################################
       # Upload Final Security Verdict
@@ -990,29 +952,9 @@ jobs:
         run: |
           set -e
 
-          python3 << 'EOF'
-          import re, json, subprocess, os
+          VERDICT=$(sed -n '/# 8. Final Security Verdict/,/# 9./p' final-report/final-security-report.md)
 
-          ENG = os.environ["DOJO_ENGAGEMENT_ID"]
-          TOKEN = os.environ["DOJO_API_KEY"]
-
-          text = open("final-report/final-security-report.md","r",encoding="utf-8").read()
-          m = re.search(r"# 8\. Final Security Verdict(.*?)# 9\.", text, re.S)
-          verdict = m.group(1).strip() if m else "Final verdict not found."
-
-          payload = json.dumps({
-              "entry": verdict,
-              "engagement": int(ENG)
-          })
-
-          subprocess.run([
-              "curl","-s","-X","POST",
-              "https://demo.defectdojo.org/api/v2/notes/",
-              "-H",f"Authorization: Token {TOKEN}",
-              "-H","Content-Type: application/json",
-              "-d",payload
-          ], check=True)
-          EOF
-        env:
-          DOJO_API_KEY: ${{ secrets.DOJO_API_KEY }}
-          DOJO_ENGAGEMENT_ID: ${{ secrets.DOJO_ENGAGEMENT_ID }}
+          curl -s -X POST "https://demo.defectdojo.org/api/v2/notes/" \
+            -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
+            -F "entry=$VERDICT" \
+            -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
