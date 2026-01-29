@@ -922,7 +922,7 @@ jobs:
             "https://demo.defectdojo.org/api/v2/engagements/${{ secrets.DOJO_ENGAGEMENT_ID }}/notes/" \
             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d "{\"note\":\"🛡️ Executive Security Summary\n\n$SUMMARY\"}"
+            -d "{\"note\":\" Executive Security Summary\n\n$SUMMARY\"}"
 
       ############################################################
       # Upload Security Recommendations Roadmap
@@ -950,4 +950,4 @@ jobs:
             "https://demo.defectdojo.org/api/v2/engagements/${{ secrets.DOJO_ENGAGEMENT_ID }}/notes/" \
             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d "{\"note\":\"🚦 Final Security Verdict\n\n$VERDICT\"}"
+            -d "{\"note\":\" Final Security Verdict\n\n$VERDICT\"}"
