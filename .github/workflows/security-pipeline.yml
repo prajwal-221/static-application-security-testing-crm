@@ -681,7 +681,6 @@ jobs:
           **Environment:** Staging  
           **Pipeline:** Enterprise DevSecOps CI/CD  
           **Date:** {{ date }}  
-          **Prepared by:** Automated AI Security Analysis Engine  
 
           ---
 
@@ -830,7 +829,6 @@ jobs:
 
           # 7. Strategic Security Enhancements
 
-          - AI-driven vulnerability prioritization  
           - CSPM & cloud posture management  
           - Continuous breach simulation  
           - Automated compliance reporting  
@@ -882,9 +880,8 @@ jobs:
 
 
 
-
 ############################################################
-# STAGE 12 — DefectDojo Enterprise Intelligence Upload
+# STAGE 12 — DefectDojo Enterprise Intelligence Upload (FIXED)
 ############################################################
   defectdojo_enterprise_intelligence:
     name: DefectDojo Enterprise Intelligence Upload
@@ -903,50 +900,54 @@ jobs:
           path: final-report
 
       ############################################################
-      # Upload Executive Summary to DefectDojo
+      # Upload Full Final Report as Engagement Attachment
+      ############################################################
+      - name: Upload Full Final Report to DefectDojo
+        shell: bash
+        run: |
+          curl -s -X POST "https://demo.defectdojo.org/api/v2/files/" \
+            -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
+            -F "file=@final-report/final-security-report.md" \
+            -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
+
+      ############################################################
+      # Upload Executive Summary (Clean)
       ############################################################
       - name: Upload Executive Summary
         shell: bash
         run: |
-          SUMMARY=$(sed -n '1,120p' final-report/final-security-report.md | sed 's/"/\\"/g')
+          SUMMARY=$(sed -n '1,80p' final-report/final-security-report.md | sed 's/"/\\"/g')
 
-          curl -s -X POST "https://demo.defectdojo.org/api/v2/engagements/${{ secrets.DOJO_ENGAGEMENT_ID }}/notes/" \
+          curl -s -X POST \
+            "https://demo.defectdojo.org/api/v2/engagements/${{ secrets.DOJO_ENGAGEMENT_ID }}/notes/" \
             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d "{\"note\":\"$SUMMARY\"}"
+            -d "{\"note\":\"🛡️ Executive Security Summary\n\n$SUMMARY\"}"
 
       ############################################################
-      # Upload Remediation Roadmap
+      # Upload Security Recommendations Roadmap
       ############################################################
       - name: Upload Remediation Roadmap
         shell: bash
         run: |
           ROADMAP=$(sed -n '/# 5. Security Recommendations Roadmap/,/# 6./p' final-report/final-security-report.md | sed 's/"/\\"/g')
 
-          curl -s -X POST "https://demo.defectdojo.org/api/v2/engagements/${{ secrets.DOJO_ENGAGEMENT_ID }}/notes/" \
+          curl -s -X POST \
+            "https://demo.defectdojo.org/api/v2/engagements/${{ secrets.DOJO_ENGAGEMENT_ID }}/notes/" \
             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d "{\"note\":\"$ROADMAP\"}"
+            -d "{\"note\":\"🛠 Security Remediation Roadmap\n\n$ROADMAP\"}"
 
       ############################################################
-      # Upload Final Security Verdict
+      # Upload Final Release Verdict
       ############################################################
       - name: Upload Final Security Verdict
         shell: bash
         run: |
           VERDICT=$(sed -n '/# 8. Final Security Verdict/,/# 9./p' final-report/final-security-report.md | sed 's/"/\\"/g')
 
-          curl -s -X POST "https://demo.defectdojo.org/api/v2/engagements/${{ secrets.DOJO_ENGAGEMENT_ID }}/notes/" \
+          curl -s -X POST \
+            "https://demo.defectdojo.org/api/v2/engagements/${{ secrets.DOJO_ENGAGEMENT_ID }}/notes/" \
             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
             -H "Content-Type: application/json" \
-            -d "{\"note\":\"$VERDICT\"}"
-
-      ############################################################
-      # Attach Full Final Report to DefectDojo
-      ############################################################
-      - name: Attach Full Final Report
-        shell: bash
-        run: |
-          curl -s -X POST "https://demo.defectdojo.org/api/v2/files/" \
-            -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-            -F "file=@final-report/final-security-report.md"
+            -d "{\"note\":\"🚦 Final Security Verdict\n\n$VERDICT\"}"
