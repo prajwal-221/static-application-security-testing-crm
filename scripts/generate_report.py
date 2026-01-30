@@ -8,58 +8,157 @@ REPORT_DIR = Path("reports")
 OUTPUT_JSON = REPORT_DIR / "security-report.json"
 OUTPUT_HTML = REPORT_DIR / "security-report.html"
 
-def read_json(filename):
-    path = REPORT_DIR / filename
+def safe_read(path):
     if not path.exists() or path.stat().st_size == 0:
-        return []
+        return None
     try:
         return json.loads(path.read_text())
-    except json.JSONDecodeError:
-        return []
+    except Exception:
+        return None
 
-yamllint = read_json("yamllint.json")
-kubeconform = read_json("kubeconform.json")
-kubescore = read_json("kube-score.json")
-kubesec = read_json("kubesec.json")
-checkov = read_json("checkov.json")
-conftest = read_json("conftest.json")
+# ----------------------------
+# Load Raw Tool Outputs
+# ----------------------------
+
+yamllint_raw = safe_read(REPORT_DIR / "yamllint.json")
+kubeconform_raw = safe_read(REPORT_DIR / "kubeconform.json")
+kubescore_raw = safe_read(REPORT_DIR / "kube-score.json")
+kubesec_raw = safe_read(REPORT_DIR / "kubesec.json")
+checkov_raw = safe_read(REPORT_DIR / "checkov.json")
+conftest_raw = safe_read(REPORT_DIR / "conftest.json")
+
+# ----------------------------
+# yamllint Parsing
+# ----------------------------
+
+yamllint_issues = []
+if isinstance(yamllint_raw, list):
+    yamllint_issues = yamllint_raw
+
+# ----------------------------
+# kubeconform Parsing
+# ----------------------------
+
+kubeconform_summary = {
+    "valid": 0,
+    "invalid": 0,
+    "errors": 0,
+    "skipped": 0
+}
+
+if isinstance(kubeconform_raw, dict):
+    kubeconform_summary = kubeconform_raw.get("summary", kubeconform_summary)
+
+# ----------------------------
+# kube-score Parsing
+# ----------------------------
+
+kubescore_critical = []
+kubescore_warning = []
+
+if isinstance(kubescore_raw, list):
+    for obj in kubescore_raw:
+        for check in obj.get("checks", []):
+            if check.get("skipped"):
+                continue
+            grade = check.get("grade", 10)
+            if grade <= 3:
+                kubescore_critical.append(check)
+            elif grade <= 6:
+                kubescore_warning.append(check)
+
+# ----------------------------
+# kubesec Parsing
+# ----------------------------
+
+kubesec_findings = []
+
+if isinstance(kubesec_raw, list):
+    for entry in kubesec_raw:
+        advise = entry.get("scoring", {}).get("advise", [])
+        if advise:
+            kubesec_findings.append({
+                "object": entry.get("object"),
+                "score": entry.get("score"),
+                "advise": advise
+            })
+
+# ----------------------------
+# checkov Parsing
+# ----------------------------
+
+checkov_failed = []
+
+if isinstance(checkov_raw, list):
+    for block in checkov_raw:
+        results = block.get("results", {})
+        for fail in results.get("failed_checks", []):
+            checkov_failed.append({
+                "id": fail.get("check_id"),
+                "name": fail.get("check_name"),
+                "severity": fail.get("severity"),
+                "file": fail.get("file_path"),
+                "guideline": fail.get("guideline")
+            })
+
+# ----------------------------
+# conftest Parsing
+# ----------------------------
+
+conftest_violations = conftest_raw if isinstance(conftest_raw, list) else []
+
+# ----------------------------
+# Final Report Structure
+# ----------------------------
 
 report = {
     "generated_at": datetime.now(UTC).isoformat(),
     "summary": {
-        "yamllint": len(yamllint),
-        "kubeconform_errors": kubeconform.get("invalid", 0) if isinstance(kubeconform, dict) else 0,
-        "kube_score_critical": sum(1 for r in kubescore if "CRITICAL" in json.dumps(r)),
-        "kubesec_findings": len(kubesec),
-        "checkov_failed": len(checkov),
-        "conftest_violations": len(conftest)
+        "yamllint_warnings": len(yamllint_issues),
+        "kubeconform_invalid": kubeconform_summary.get("invalid", 0),
+        "kubescore_critical": len(kubescore_critical),
+        "kubescore_warning": len(kubescore_warning),
+        "kubesec_findings": len(kubesec_findings),
+        "checkov_failed": len(checkov_failed),
+        "conftest_violations": len(conftest_violations)
     },
     "details": {
-        "yamllint": yamllint,
-        "kubeconform": kubeconform,
-        "kube_score": kubescore,
-        "kubesec": kubesec,
-        "checkov": checkov,
-        "conftest": conftest
+        "yamllint": yamllint_issues,
+        "kubeconform": kubeconform_summary,
+        "kube_score_critical": kubescore_critical,
+        "kube_score_warning": kubescore_warning,
+        "kubesec": kubesec_findings,
+        "checkov": checkov_failed,
+        "conftest": conftest_violations
     }
 }
 
 OUTPUT_JSON.write_text(json.dumps(report, indent=2))
 
-# Generate HTML report
+# ----------------------------
+# Generate HTML Dashboard
+# ----------------------------
+
+def section(title, content):
+    return f"<div class='card'><h3>{title}</h3><pre>{json.dumps(content, indent=2)}</pre></div>"
+
 html = f"""
 <!DOCTYPE html>
 <html>
 <head>
-    <title>DevSecOps Kubernetes Security Report</title>
-    <style>
-        body {{ font-family: Arial; background: #0f172a; color: #e5e7eb; padding: 30px; }}
-        h1, h2 {{ color: #38bdf8; }}
-        .card {{ background: #020617; padding: 20px; margin-bottom: 15px; border-radius: 8px; }}
-        .critical {{ color: #f87171; }}
-        .ok {{ color: #4ade80; }}
-        pre {{ background: #020617; padding: 15px; border-radius: 8px; overflow-x: auto; }}
-    </style>
+<title>Kubernetes DevSecOps Security Report</title>
+<style>
+body {{ font-family: Inter, Arial; background:#020617; color:#e5e7eb; padding:40px }}
+h1 {{ color:#38bdf8 }}
+h2 {{ color:#22c55e }}
+h3 {{ color:#facc15 }}
+.card {{ background:#020617; border:1px solid #1e293b; border-radius:10px; padding:20px; margin-bottom:20px }}
+.summary span {{ display:block; margin:6px 0 }}
+.bad {{ color:#f87171 }}
+.warn {{ color:#facc15 }}
+.good {{ color:#4ade80 }}
+pre {{ white-space:pre-wrap; word-break:break-word }}
+</style>
 </head>
 <body>
 
@@ -67,17 +166,25 @@ html = f"""
 <p><b>Generated:</b> {report["generated_at"]}</p>
 
 <h2>📊 Summary</h2>
-<div class="card">
-    <p>yamllint warnings: <b>{report['summary']['yamllint']}</b></p>
-    <p>kubeconform invalid: <b>{report['summary']['kubeconform_errors']}</b></p>
-    <p>kube-score critical: <b>{report['summary']['kube_score_critical']}</b></p>
-    <p>kubesec scanned: <b>{report['summary']['kubesec_findings']}</b></p>
-    <p>checkov failed: <b>{report['summary']['checkov_failed']}</b></p>
-    <p>conftest violations: <b>{report['summary']['conftest_violations']}</b></p>
+<div class="card summary">
+  <span class="warn">yamllint warnings: {report["summary"]["yamllint_warnings"]}</span>
+  <span class="good">kubeconform invalid: {report["summary"]["kubeconform_invalid"]}</span>
+  <span class="bad">kube-score critical: {report["summary"]["kubescore_critical"]}</span>
+  <span class="warn">kube-score warnings: {report["summary"]["kubescore_warning"]}</span>
+  <span class="warn">kubesec findings: {report["summary"]["kubesec_findings"]}</span>
+  <span class="bad">checkov failed: {report["summary"]["checkov_failed"]}</span>
+  <span class="good">conftest violations: {report["summary"]["conftest_violations"]}</span>
 </div>
 
 <h2>🔎 Detailed Findings</h2>
-<pre>{json.dumps(report["details"], indent=2)}</pre>
+
+{section("yamllint", report["details"]["yamllint"])}
+{section("kubeconform", report["details"]["kubeconform"])}
+{section("kube-score (CRITICAL)", report["details"]["kube_score_critical"])}
+{section("kube-score (WARNING)", report["details"]["kube_score_warning"])}
+{section("kubesec", report["details"]["kubesec"])}
+{section("checkov", report["details"]["checkov"])}
+{section("conftest", report["details"]["conftest"])}
 
 </body>
 </html>
@@ -86,5 +193,5 @@ html = f"""
 OUTPUT_HTML.write_text(html)
 
 print("Security reports generated successfully.")
-print(f"- JSON: {OUTPUT_JSON}")
-print(f"- HTML: {OUTPUT_HTML}")
+print(f"JSON  → {OUTPUT_JSON}")
+print(f"HTML  → {OUTPUT_HTML}")
