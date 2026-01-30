@@ -4,6 +4,7 @@ pipeline {
   environment {
     K8S_DIR = "k8s"
     POLICY_DIR = "policies"
+    REPORT_DIR = "reports"
   }
 
   options {
@@ -19,11 +20,20 @@ pipeline {
       }
     }
 
+    stage('Prepare Workspace') {
+      steps {
+        sh '''
+          rm -rf $REPORT_DIR
+          mkdir -p $REPORT_DIR
+        '''
+      }
+    }
+
     stage('YAML Lint - yamllint') {
       steps {
         sh '''
           echo "Running yamllint..."
-          yamllint -d relaxed $K8S_DIR
+          yamllint -f parsable -d relaxed $K8S_DIR > $REPORT_DIR/yamllint.txt || true
         '''
       }
     }
@@ -36,7 +46,8 @@ pipeline {
             xargs -0 kubeconform \
               -strict \
               -summary \
-              -ignore-missing-schemas
+              -output json \
+              -ignore-missing-schemas > $REPORT_DIR/kubeconform.json || true
         '''
       }
     }
@@ -45,7 +56,7 @@ pipeline {
       steps {
         sh '''
           echo "Running kube-score..."
-          kube-score score $K8S_DIR/**/*.yaml || true
+          kube-score score $K8S_DIR/**/*.yaml -o json > $REPORT_DIR/kube-score.json || true
         '''
       }
     }
@@ -54,10 +65,18 @@ pipeline {
       steps {
         sh '''
           echo "Running kubesec..."
+          echo "[" > $REPORT_DIR/kubesec.json
+          first=true
           for file in $(find $K8S_DIR -name "*.yaml"); do
-            echo "Scanning $file"
-            kubesec scan $file || true
+            result=$(kubesec scan $file)
+            if [ "$first" = true ]; then
+              first=false
+            else
+              echo "," >> $REPORT_DIR/kubesec.json
+            fi
+            echo "$result" >> $REPORT_DIR/kubesec.json
           done
+          echo "]" >> $REPORT_DIR/kubesec.json
         '''
       }
     }
@@ -66,7 +85,7 @@ pipeline {
       steps {
         sh '''
           echo "Running Checkov..."
-          checkov -d $K8S_DIR --framework kubernetes
+          checkov -d $K8S_DIR -o json > $REPORT_DIR/checkov.json || true
         '''
       }
     }
@@ -74,8 +93,16 @@ pipeline {
     stage('Policy Enforcement - Conftest') {
       steps {
         sh '''
-          echo "Running OPA policy checks..."
-          conftest test $K8S_DIR --policy $POLICY_DIR
+          echo "Running Conftest..."
+          conftest test $K8S_DIR --policy $POLICY_DIR -o json > $REPORT_DIR/conftest.json || true
+        '''
+      }
+    }
+
+    stage('Generate Security Report') {
+      steps {
+        sh '''
+          python3 scripts/generate_report.py
         '''
       }
     }
@@ -83,14 +110,14 @@ pipeline {
   }
 
   post {
+    always {
+      archiveArtifacts artifacts: 'security-report.html, security-report.json, reports/**', fingerprint: true
+    }
     success {
-      echo "All Kubernetes security & compliance checks PASSED"
+      echo "DevSecOps Security Validation PASSED"
     }
     failure {
-      echo "Security validation FAILED — Deployment BLOCKED"
-    }
-    always {
-      echo "Pipeline completed"
+      echo "Security Validation FAILED – Review Security Report"
     }
   }
 }
