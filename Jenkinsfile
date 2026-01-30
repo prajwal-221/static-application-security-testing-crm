@@ -51,15 +51,15 @@ pipeline {
       steps {
         sh '''
           yamllint -f parsable -d relaxed $K8S_DIR > $REPORT_DIR/yamllint.txt || true
+
           COUNT=$(wc -l < $REPORT_DIR/yamllint.txt || echo 0)
 
           if [ "$COUNT" -eq 0 ]; then
-            echo "YAML Lint Result: PASS" > $REPORT_DIR/yamllint.status
+            echo "YAML Lint Result: PASS"
           else
-            echo "YAML Lint Result: WARN — $COUNT warnings detected" > $REPORT_DIR/yamllint.status
+            echo "YAML Lint Result: WARN — $COUNT warnings detected"
           fi
         '''
-        sh 'cat $REPORT_DIR/yamllint.status'
       }
     }
 
@@ -73,12 +73,11 @@ pipeline {
           INVALID=$(jq '.summary.invalid' $REPORT_DIR/kubeconform.json 2>/dev/null || echo 0)
 
           if [ "$INVALID" -eq 0 ]; then
-            echo "Kubeconform Result: PASS — All schemas valid" > $REPORT_DIR/kubeconform.status
+            echo "Kubeconform Result: PASS — All schemas valid"
           else
-            echo "Kubeconform Result: FAIL — $INVALID invalid resources" > $REPORT_DIR/kubeconform.status
+            echo "Kubeconform Result: FAIL — $INVALID invalid resources"
           fi
         '''
-        sh 'cat $REPORT_DIR/kubeconform.status'
       }
     }
 
@@ -90,15 +89,14 @@ pipeline {
           CRITICAL=$(jq '[.[] | .checks[] | select(.grade <= 3)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
           WARNING=$(jq '[.[] | .checks[] | select(.grade > 3 and .grade <= 6)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
 
-          if [ "$CRITICAL" -eq 0 ] && [ "$WARNING" -eq 0 ]; then
-            echo "Kube-score Result: PASS — No findings" > $REPORT_DIR/kube-score.status
-          elif [ "$CRITICAL" -eq 0 ]; then
-            echo "Kube-score Result: WARN — $WARNING warnings" > $REPORT_DIR/kube-score.status
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "Kube-score Result: FAIL — $CRITICAL critical findings"
+          elif [ "$WARNING" -gt 0 ]; then
+            echo "Kube-score Result: WARN — $WARNING warnings"
           else
-            echo "Kube-score Result: FAIL — $CRITICAL critical findings" > $REPORT_DIR/kube-score.status
+            echo "Kube-score Result: PASS — No findings"
           fi
         '''
-        sh 'cat $REPORT_DIR/kube-score.status'
       }
     }
 
@@ -131,12 +129,11 @@ pipeline {
           FINDINGS=$(jq '[.[] | .scoring.advise[]] | length' $REPORT_DIR/kubesec.json 2>/dev/null || echo 0)
 
           if [ "$FINDINGS" -eq 0 ]; then
-            echo "Kubesec Result: PASS — No security findings" > $REPORT_DIR/kubesec.status
+            echo "Kubesec Result: PASS — No security findings"
           else
-            echo "Kubesec Result: WARN — $FINDINGS recommendations" > $REPORT_DIR/kubesec.status
+            echo "Kubesec Result: WARN — $FINDINGS recommendations"
           fi
         '''
-        sh 'cat $REPORT_DIR/kubesec.status'
       }
     }
 
@@ -148,12 +145,11 @@ pipeline {
           FAILED=$(jq '.results.failed_checks | length' $REPORT_DIR/checkov.json 2>/dev/null || echo 0)
 
           if [ "$FAILED" -eq 0 ]; then
-            echo "Checkov Result: PASS — No failed checks" > $REPORT_DIR/checkov.status
+            echo "Checkov Result: PASS — No failed checks"
           else
-            echo "Checkov Result: FAIL — $FAILED failed checks" > $REPORT_DIR/checkov.status
+            echo "Checkov Result: FAIL — $FAILED failed checks"
           fi
         '''
-        sh 'cat $REPORT_DIR/checkov.status'
       }
     }
 
@@ -169,12 +165,11 @@ pipeline {
           COUNT=$(jq 'length' $REPORT_DIR/conftest.json 2>/dev/null || echo 0)
 
           if [ "$COUNT" -eq 0 ]; then
-            echo "Conftest Result: PASS — No policy violations" > $REPORT_DIR/conftest.status
+            echo "Conftest Result: PASS — No policy violations"
           else
-            echo "Conftest Result: FAIL — $COUNT violations" > $REPORT_DIR/conftest.status
+            echo "Conftest Result: FAIL — $COUNT violations"
           fi
         '''
-        sh 'cat $REPORT_DIR/conftest.status'
       }
     }
 
