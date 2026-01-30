@@ -217,7 +217,7 @@ pre {{ white-space:pre-wrap; word-break:break-word }}
   <span class="good">conftest violations: {summary["conftest_violations"]}</span>
 </div>
 
-<h2>🔎 Detailed Findings</h2>
+<h2>Detailed Findings</h2>
 """
 
     for tool, content in data.items():
