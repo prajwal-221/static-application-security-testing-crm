@@ -34,7 +34,6 @@ pipeline {
             [$class: 'PruneStaleBranch']
           ]
         ])
-
         sh 'git log -1 --oneline'
       }
     }
@@ -42,7 +41,6 @@ pipeline {
     stage('Prepare Workspace') {
       steps {
         sh '''
-          set -e
           rm -rf $REPORT_DIR
           mkdir -p $REPORT_DIR
         '''
@@ -52,43 +50,35 @@ pipeline {
     stage('YAML Lint - yamllint') {
       steps {
         sh '''
-          echo "Running yamllint..."
           yamllint -f parsable -d relaxed $K8S_DIR > $REPORT_DIR/yamllint.txt || true
-          wc -l < $REPORT_DIR/yamllint.txt > $REPORT_DIR/yamllint.count || echo 0 > $REPORT_DIR/yamllint.count
-        '''
+          COUNT=$(wc -l < $REPORT_DIR/yamllint.txt || echo 0)
 
-        sh '''
-          COUNT=$(cat $REPORT_DIR/yamllint.count)
           if [ "$COUNT" -eq 0 ]; then
-            echo "YAML Lint Result: PASS"
+            echo "YAML Lint Result: PASS" > $REPORT_DIR/yamllint.status
           else
-            echo "YAML Lint Result: WARN — $COUNT warnings detected"
+            echo "YAML Lint Result: WARN — $COUNT warnings detected" > $REPORT_DIR/yamllint.status
           fi
         '''
+        sh 'cat $REPORT_DIR/yamllint.status'
       }
     }
 
     stage('Kubernetes Schema Validation - kubeconform') {
       steps {
         sh '''
-          find $K8S_DIR -name "*.yaml" -print0 > $REPORT_DIR/kubeconform-files.txt
+          find $K8S_DIR -name "*.yaml" -print0 | \
+          xargs -0 kubeconform -strict -summary -verbose -output json -ignore-missing-schemas \
+          > $REPORT_DIR/kubeconform.json || true
 
-          cat $REPORT_DIR/kubeconform-files.txt | \
-            xargs -0 kubeconform \
-              -strict -summary -verbose -output json \
-              -ignore-missing-schemas > $REPORT_DIR/kubeconform.json || true
+          INVALID=$(jq '.summary.invalid' $REPORT_DIR/kubeconform.json 2>/dev/null || echo 0)
 
-          jq '.summary.invalid' $REPORT_DIR/kubeconform.json > $REPORT_DIR/kubeconform.invalid || echo 0 > $REPORT_DIR/kubeconform.invalid
-        '''
-
-        sh '''
-          INVALID=$(cat $REPORT_DIR/kubeconform.invalid)
           if [ "$INVALID" -eq 0 ]; then
-            echo "Kubeconform Result: PASS — All schemas valid"
+            echo "Kubeconform Result: PASS — All schemas valid" > $REPORT_DIR/kubeconform.status
           else
-            echo "Kubeconform Result: FAIL — $INVALID invalid resources"
+            echo "Kubeconform Result: FAIL — $INVALID invalid resources" > $REPORT_DIR/kubeconform.status
           fi
         '''
+        sh 'cat $REPORT_DIR/kubeconform.status'
       }
     }
 
@@ -97,26 +87,18 @@ pipeline {
         sh '''
           kube-score score $K8S_DIR/**/*.yaml -o json > $REPORT_DIR/kube-score.json || true
 
-          jq '[.[] | .checks[] | select(.grade <= 3)] | length' $REPORT_DIR/kube-score.json > $REPORT_DIR/kubescore.critical || echo 0 > $REPORT_DIR/kubescore.critical
-          jq '[.[] | .checks[] | select(.grade > 3 and .grade <= 6)] | length' $REPORT_DIR/kube-score.json > $REPORT_DIR/kubescore.warning || echo 0 > $REPORT_DIR/kubescore.warning
-        '''
+          CRITICAL=$(jq '[.[] | .checks[] | select(.grade <= 3)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
+          WARNING=$(jq '[.[] | .checks[] | select(.grade > 3 and .grade <= 6)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
 
-        sh '''
-          CRITICAL=$(cat $REPORT_DIR/kubescore.critical)
-          WARNING=$(cat $REPORT_DIR/kubescore.warning)
-
-          if [ "$CRITICAL" -eq 0 ]; then
-            echo "Kube-score Critical: PASS"
+          if [ "$CRITICAL" -eq 0 ] && [ "$WARNING" -eq 0 ]; then
+            echo "Kube-score Result: PASS — No findings" > $REPORT_DIR/kube-score.status
+          elif [ "$CRITICAL" -eq 0 ]; then
+            echo "Kube-score Result: WARN — $WARNING warnings" > $REPORT_DIR/kube-score.status
           else
-            echo "Kube-score Critical: FAIL — $CRITICAL findings"
-          fi
-
-          if [ "$WARNING" -eq 0 ]; then
-            echo "Kube-score Warnings: PASS"
-          else
-            echo "Kube-score Warnings: WARN — $WARNING warnings"
+            echo "Kube-score Result: FAIL — $CRITICAL critical findings" > $REPORT_DIR/kube-score.status
           fi
         '''
+        sh 'cat $REPORT_DIR/kube-score.status'
       }
     }
 
@@ -146,17 +128,15 @@ pipeline {
 
           echo "]" >> $REPORT_DIR/kubesec.json
 
-          jq '[.[] | .scoring.advise[]] | length' $REPORT_DIR/kubesec.json > $REPORT_DIR/kubesec.count || echo 0 > $REPORT_DIR/kubesec.count
-        '''
+          FINDINGS=$(jq '[.[] | .scoring.advise[]] | length' $REPORT_DIR/kubesec.json 2>/dev/null || echo 0)
 
-        sh '''
-          FINDINGS=$(cat $REPORT_DIR/kubesec.count)
           if [ "$FINDINGS" -eq 0 ]; then
-            echo "Kubesec Result: PASS — No security findings"
+            echo "Kubesec Result: PASS — No security findings" > $REPORT_DIR/kubesec.status
           else
-            echo "Kubesec Result: WARN — $FINDINGS security recommendations"
+            echo "Kubesec Result: WARN — $FINDINGS recommendations" > $REPORT_DIR/kubesec.status
           fi
         '''
+        sh 'cat $REPORT_DIR/kubesec.status'
       }
     }
 
@@ -164,17 +144,16 @@ pipeline {
       steps {
         sh '''
           checkov -d $K8S_DIR -o json > $REPORT_DIR/checkov.json || true
-          jq '.results.failed_checks | length' $REPORT_DIR/checkov.json > $REPORT_DIR/checkov.count || echo 0 > $REPORT_DIR/checkov.count
-        '''
 
-        sh '''
-          FAILED=$(cat $REPORT_DIR/checkov.count)
+          FAILED=$(jq '.results.failed_checks | length' $REPORT_DIR/checkov.json 2>/dev/null || echo 0)
+
           if [ "$FAILED" -eq 0 ]; then
-            echo "Checkov Result: PASS — No failed checks"
+            echo "Checkov Result: PASS — No failed checks" > $REPORT_DIR/checkov.status
           else
-            echo "Checkov Result: FAIL — $FAILED failed checks"
+            echo "Checkov Result: FAIL — $FAILED failed checks" > $REPORT_DIR/checkov.status
           fi
         '''
+        sh 'cat $REPORT_DIR/checkov.status'
       }
     }
 
@@ -187,25 +166,21 @@ pipeline {
             echo "[]" > $REPORT_DIR/conftest.json
           fi
 
-          jq 'length' $REPORT_DIR/conftest.json > $REPORT_DIR/conftest.count || echo 0 > $REPORT_DIR/conftest.count
-        '''
+          COUNT=$(jq 'length' $REPORT_DIR/conftest.json 2>/dev/null || echo 0)
 
-        sh '''
-          COUNT=$(cat $REPORT_DIR/conftest.count)
           if [ "$COUNT" -eq 0 ]; then
-            echo "Conftest Result: PASS — No policy violations"
+            echo "Conftest Result: PASS — No policy violations" > $REPORT_DIR/conftest.status
           else
-            echo "Conftest Result: FAIL — $COUNT policy violations"
+            echo "Conftest Result: FAIL — $COUNT violations" > $REPORT_DIR/conftest.status
           fi
         '''
+        sh 'cat $REPORT_DIR/conftest.status'
       }
     }
 
     stage('Generate Security Report') {
       steps {
-        sh '''
-          python3 scripts/generate_report.py
-        '''
+        sh 'python3 scripts/generate_report.py'
       }
     }
 
