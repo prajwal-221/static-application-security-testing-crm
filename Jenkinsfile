@@ -14,9 +14,28 @@ pipeline {
 
   stages {
 
+    stage('Force Clean Workspace') {
+      steps {
+        deleteDir()
+      }
+    }
+
     stage('Checkout') {
       steps {
-        checkout scm
+        checkout([
+          $class: 'GitSCM',
+          branches: [[name: '*/staging']],
+          userRemoteConfigs: [[
+            url: 'https://github.com/prajwal-221/static-application-security-testing-crm.git',
+            credentialsId: '2d538862-d385-4df0-be3e-ea0c372f27b7'
+          ]],
+          extensions: [
+            [$class: 'CleanBeforeCheckout'],
+            [$class: 'PruneStaleBranch']
+          ]
+        ])
+
+        sh 'git log -1 --oneline'
       }
     }
 
