@@ -54,10 +54,11 @@ pipeline {
         sh '''
           echo "Running yamllint..."
           yamllint -f parsable -d relaxed $K8S_DIR > $REPORT_DIR/yamllint.txt || true
+          wc -l < $REPORT_DIR/yamllint.txt > $REPORT_DIR/yamllint.count || echo 0 > $REPORT_DIR/yamllint.count
+        '''
 
-          echo "Parsing yamllint results..."
-          COUNT=$(wc -l < $REPORT_DIR/yamllint.txt || echo 0)
-
+        sh '''
+          COUNT=$(cat $REPORT_DIR/yamllint.count)
           if [ "$COUNT" -eq 0 ]; then
             echo "YAML Lint Result: PASS"
           else
@@ -70,21 +71,18 @@ pipeline {
     stage('Kubernetes Schema Validation - kubeconform') {
       steps {
         sh '''
-          echo "Running kubeconform validation..."
           find $K8S_DIR -name "*.yaml" -print0 > $REPORT_DIR/kubeconform-files.txt
 
-          echo "Validating manifests..."
           cat $REPORT_DIR/kubeconform-files.txt | \
             xargs -0 kubeconform \
-              -strict \
-              -summary \
-              -verbose \
-              -output json \
+              -strict -summary -verbose -output json \
               -ignore-missing-schemas > $REPORT_DIR/kubeconform.json || true
 
-          echo "Parsing kubeconform results..."
-          INVALID=$(jq '.summary.invalid' $REPORT_DIR/kubeconform.json 2>/dev/null || echo 0)
+          jq '.summary.invalid' $REPORT_DIR/kubeconform.json > $REPORT_DIR/kubeconform.invalid || echo 0 > $REPORT_DIR/kubeconform.invalid
+        '''
 
+        sh '''
+          INVALID=$(cat $REPORT_DIR/kubeconform.invalid)
           if [ "$INVALID" -eq 0 ]; then
             echo "Kubeconform Result: PASS — All schemas valid"
           else
@@ -97,23 +95,26 @@ pipeline {
     stage('Kubernetes Best Practices - kube-score') {
       steps {
         sh '''
-          echo "Running kube-score..."
           kube-score score $K8S_DIR/**/*.yaml -o json > $REPORT_DIR/kube-score.json || true
 
-          echo "Analyzing kube-score output..."
-          CRITICAL=$(jq '[.[] | .checks[] | select(.grade <= 3)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
-          WARNING=$(jq '[.[] | .checks[] | select(.grade > 3 and .grade <= 6)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
+          jq '[.[] | .checks[] | select(.grade <= 3)] | length' $REPORT_DIR/kube-score.json > $REPORT_DIR/kubescore.critical || echo 0 > $REPORT_DIR/kubescore.critical
+          jq '[.[] | .checks[] | select(.grade > 3 and .grade <= 6)] | length' $REPORT_DIR/kube-score.json > $REPORT_DIR/kubescore.warning || echo 0 > $REPORT_DIR/kubescore.warning
+        '''
+
+        sh '''
+          CRITICAL=$(cat $REPORT_DIR/kubescore.critical)
+          WARNING=$(cat $REPORT_DIR/kubescore.warning)
 
           if [ "$CRITICAL" -eq 0 ]; then
             echo "Kube-score Critical: PASS"
           else
-            echo "Kube-score Critical: FAIL — $CRITICAL critical findings"
+            echo "Kube-score Critical: FAIL — $CRITICAL findings"
           fi
 
           if [ "$WARNING" -eq 0 ]; then
             echo "Kube-score Warnings: PASS"
           else
-            echo "Kube-score Warnings: WARN — $WARNING warnings detected"
+            echo "Kube-score Warnings: WARN — $WARNING warnings"
           fi
         '''
       }
@@ -122,8 +123,6 @@ pipeline {
     stage('Kubernetes Security Scan - kubesec') {
       steps {
         sh '''
-          echo "Running kubesec scans..."
-
           echo "[" > $REPORT_DIR/kubesec.json
           first=true
 
@@ -132,8 +131,6 @@ pipeline {
 
             case "$kind" in
               Deployment|StatefulSet|DaemonSet|Job|CronJob)
-                echo "Scanning workload: $file ($kind)"
-
                 result=$(kubesec scan "$file" 2>/dev/null || true)
 
                 if [ "$first" = true ]; then
@@ -144,16 +141,16 @@ pipeline {
 
                 echo "$result" >> $REPORT_DIR/kubesec.json
                 ;;
-              *)
-                ;;
             esac
           done
 
           echo "]" >> $REPORT_DIR/kubesec.json
 
-          echo "Analyzing kubesec results..."
-          FINDINGS=$(jq '[.[] | .scoring.advise[]] | length' $REPORT_DIR/kubesec.json 2>/dev/null || echo 0)
+          jq '[.[] | .scoring.advise[]] | length' $REPORT_DIR/kubesec.json > $REPORT_DIR/kubesec.count || echo 0 > $REPORT_DIR/kubesec.count
+        '''
 
+        sh '''
+          FINDINGS=$(cat $REPORT_DIR/kubesec.count)
           if [ "$FINDINGS" -eq 0 ]; then
             echo "Kubesec Result: PASS — No security findings"
           else
@@ -166,12 +163,12 @@ pipeline {
     stage('IaC Security Scan - Checkov') {
       steps {
         sh '''
-          echo "Running Checkov..."
           checkov -d $K8S_DIR -o json > $REPORT_DIR/checkov.json || true
+          jq '.results.failed_checks | length' $REPORT_DIR/checkov.json > $REPORT_DIR/checkov.count || echo 0 > $REPORT_DIR/checkov.count
+        '''
 
-          echo "Parsing Checkov output..."
-          FAILED=$(jq '.results.failed_checks | length' $REPORT_DIR/checkov.json 2>/dev/null || echo 0)
-
+        sh '''
+          FAILED=$(cat $REPORT_DIR/checkov.count)
           if [ "$FAILED" -eq 0 ]; then
             echo "Checkov Result: PASS — No failed checks"
           else
@@ -184,18 +181,17 @@ pipeline {
     stage('Policy Enforcement - Conftest') {
       steps {
         sh '''
-          echo "Running Conftest policy enforcement..."
-
           if [ -d "$POLICY_DIR" ] && [ "$(ls -A $POLICY_DIR 2>/dev/null)" ]; then
             conftest test $K8S_DIR --policy $POLICY_DIR -o json > $REPORT_DIR/conftest.json || true
           else
             echo "[]" > $REPORT_DIR/conftest.json
-            echo "Conftest Result: SKIPPED — No policies found"
           fi
 
-          echo "Parsing Conftest results..."
-          COUNT=$(jq 'length' $REPORT_DIR/conftest.json 2>/dev/null || echo 0)
+          jq 'length' $REPORT_DIR/conftest.json > $REPORT_DIR/conftest.count || echo 0 > $REPORT_DIR/conftest.count
+        '''
 
+        sh '''
+          COUNT=$(cat $REPORT_DIR/conftest.count)
           if [ "$COUNT" -eq 0 ]; then
             echo "Conftest Result: PASS — No policy violations"
           else
@@ -208,7 +204,6 @@ pipeline {
     stage('Generate Security Report') {
       steps {
         sh '''
-          echo "Generating consolidated security report..."
           python3 scripts/generate_report.py
         '''
       }
