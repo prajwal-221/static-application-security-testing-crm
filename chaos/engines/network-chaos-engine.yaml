@@ -1,0 +1,23 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: network-latency-chaos
+  namespace: litmus
+spec:
+  engineState: active
+  chaosServiceAccount: litmus
+
+  appinfo:
+    appns: idurar
+    applabel: "frontend"
+    appkind: deployment
+
+  experiments:
+    - name: pod-network-latency
+      spec:
+        components:
+          env:
+            - name: NETWORK_LATENCY
+              value: "2000"
+            - name: TOTAL_CHAOS_DURATION
+              value: "120"

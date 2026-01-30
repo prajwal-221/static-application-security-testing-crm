@@ -1,0 +1,23 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: backend-pod-delete-chaos
+  namespace: litmus
+spec:
+  engineState: active
+  chaosServiceAccount: litmus
+
+  appinfo:
+    appns: idurar
+    applabel: "backend"
+    appkind: deployment
+
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            - name: TOTAL_CHAOS_DURATION
+              value: "90"
+            - name: CHAOS_INTERVAL
+              value: "15"

@@ -1,0 +1,21 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-delete
+  namespace: litmus
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["create","delete","get","list","patch","update","watch"]
+      - apiGroups: ["apps"]
+        resources: ["deployments","statefulsets","daemonsets"]
+        verbs: ["get","list","watch"]
+    image: litmuschaos/go-runner:3.0.0
+    imagePullPolicy: Always
+    command: ["/bin/bash"]
+    args:
+      - -c
+      - ./experiments -name pod-delete

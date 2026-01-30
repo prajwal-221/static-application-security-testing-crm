@@ -1,0 +1,18 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: pod-network-latency
+  namespace: litmus
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+      - apiGroups: [""]
+        resources: ["pods"]
+        verbs: ["create","delete","get","list","patch","update","watch"]
+    image: litmuschaos/go-runner:3.0.0
+    imagePullPolicy: Always
+    command: ["/bin/bash"]
+    args:
+      - -c
+      - ./experiments -name pod-network-latency
