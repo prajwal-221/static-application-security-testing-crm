@@ -194,8 +194,6 @@ pipeline {
       echo "Security Validation FAILED — Review Security Report"
     }
   }
-}
-
 
 
 
@@ -286,4 +284,4 @@ pipeline {
         '''
       }
     }
-
+}
