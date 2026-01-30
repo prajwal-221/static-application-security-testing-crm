@@ -36,11 +36,13 @@ pipeline {
           echo "Running yamllint..."
           yamllint -f parsable -d relaxed $K8S_DIR > $REPORT_DIR/yamllint.txt || true
 
+          echo "Parsing yamllint results..."
           COUNT=$(wc -l < $REPORT_DIR/yamllint.txt || echo 0)
+
           if [ "$COUNT" -eq 0 ]; then
-            echo "✅ YAML Lint: PASS — No issues found"
+            echo "YAML Lint Result: PASS"
           else
-            echo "⚠️  YAML Lint: WARN — $COUNT warnings detected"
+            echo "YAML Lint Result: WARN — $COUNT warnings detected"
           fi
         '''
       }
@@ -49,20 +51,25 @@ pipeline {
     stage('Kubernetes Schema Validation - kubeconform') {
       steps {
         sh '''
-          echo "Running kubeconform..."
-          find $K8S_DIR -name "*.yaml" -print0 | \
+          echo "Running kubeconform validation..."
+          find $K8S_DIR -name "*.yaml" -print0 > $REPORT_DIR/kubeconform-files.txt
+
+          echo "Validating manifests..."
+          cat $REPORT_DIR/kubeconform-files.txt | \
             xargs -0 kubeconform \
               -strict \
               -summary \
               -verbose \
               -output json \
-              -ignore-missing-schemas | tee $REPORT_DIR/kubeconform.json || true
+              -ignore-missing-schemas > $REPORT_DIR/kubeconform.json || true
 
+          echo "Parsing kubeconform results..."
           INVALID=$(jq '.summary.invalid' $REPORT_DIR/kubeconform.json 2>/dev/null || echo 0)
+
           if [ "$INVALID" -eq 0 ]; then
-            echo "✅ Kubeconform: PASS — All schemas valid"
+            echo "Kubeconform Result: PASS — All schemas valid"
           else
-            echo "❌ Kubeconform: FAIL — $INVALID invalid resources"
+            echo "Kubeconform Result: FAIL — $INVALID invalid resources"
           fi
         '''
       }
@@ -74,17 +81,20 @@ pipeline {
           echo "Running kube-score..."
           kube-score score $K8S_DIR/**/*.yaml -o json > $REPORT_DIR/kube-score.json || true
 
+          echo "Analyzing kube-score output..."
           CRITICAL=$(jq '[.[] | .checks[] | select(.grade <= 3)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
           WARNING=$(jq '[.[] | .checks[] | select(.grade > 3 and .grade <= 6)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
 
           if [ "$CRITICAL" -eq 0 ]; then
-            echo "✅ Kube-score: PASS — No critical findings"
+            echo "Kube-score Critical: PASS"
           else
-            echo "❌ Kube-score: FAIL — $CRITICAL critical findings"
+            echo "Kube-score Critical: FAIL — $CRITICAL critical findings"
           fi
 
-          if [ "$WARNING" -gt 0 ]; then
-            echo "⚠️  Kube-score: WARN — $WARNING warnings detected"
+          if [ "$WARNING" -eq 0 ]; then
+            echo "Kube-score Warnings: PASS"
+          else
+            echo "Kube-score Warnings: WARN — $WARNING warnings detected"
           fi
         '''
       }
@@ -93,7 +103,7 @@ pipeline {
     stage('Kubernetes Security Scan - kubesec') {
       steps {
         sh '''
-          echo "Running kubesec (workload resources only)..."
+          echo "Running kubesec scans..."
 
           echo "[" > $REPORT_DIR/kubesec.json
           first=true
@@ -103,7 +113,8 @@ pipeline {
 
             case "$kind" in
               Deployment|StatefulSet|DaemonSet|Job|CronJob)
-                echo "Scanning $file ($kind)"
+                echo "Scanning workload: $file ($kind)"
+
                 result=$(kubesec scan "$file" 2>/dev/null || true)
 
                 if [ "$first" = true ]; then
@@ -121,12 +132,13 @@ pipeline {
 
           echo "]" >> $REPORT_DIR/kubesec.json
 
+          echo "Analyzing kubesec results..."
           FINDINGS=$(jq '[.[] | .scoring.advise[]] | length' $REPORT_DIR/kubesec.json 2>/dev/null || echo 0)
 
           if [ "$FINDINGS" -eq 0 ]; then
-            echo "✅ Kubesec: PASS — No security findings"
+            echo "Kubesec Result: PASS — No security findings"
           else
-            echo "⚠️  Kubesec: WARN — $FINDINGS security recommendations"
+            echo "Kubesec Result: WARN — $FINDINGS security recommendations"
           fi
         '''
       }
@@ -138,12 +150,13 @@ pipeline {
           echo "Running Checkov..."
           checkov -d $K8S_DIR -o json > $REPORT_DIR/checkov.json || true
 
+          echo "Parsing Checkov output..."
           FAILED=$(jq '.results.failed_checks | length' $REPORT_DIR/checkov.json 2>/dev/null || echo 0)
 
           if [ "$FAILED" -eq 0 ]; then
-            echo "✅ Checkov: PASS — No failed policies"
+            echo "Checkov Result: PASS — No failed checks"
           else
-            echo "❌ Checkov: FAIL — $FAILED failed checks"
+            echo "Checkov Result: FAIL — $FAILED failed checks"
           fi
         '''
       }
@@ -152,21 +165,22 @@ pipeline {
     stage('Policy Enforcement - Conftest') {
       steps {
         sh '''
-          echo "Running Conftest..."
+          echo "Running Conftest policy enforcement..."
 
           if [ -d "$POLICY_DIR" ] && [ "$(ls -A $POLICY_DIR 2>/dev/null)" ]; then
-            conftest test $K8S_DIR --policy $POLICY_DIR -o json | tee $REPORT_DIR/conftest.json || true
+            conftest test $K8S_DIR --policy $POLICY_DIR -o json > $REPORT_DIR/conftest.json || true
           else
             echo "[]" > $REPORT_DIR/conftest.json
-            echo "⚠️  Conftest: SKIPPED — No policies found"
+            echo "Conftest Result: SKIPPED — No policies found"
           fi
 
+          echo "Parsing Conftest results..."
           COUNT=$(jq 'length' $REPORT_DIR/conftest.json 2>/dev/null || echo 0)
 
           if [ "$COUNT" -eq 0 ]; then
-            echo "✅ Conftest: PASS — No policy violations"
+            echo "Conftest Result: PASS — No policy violations"
           else
-            echo "❌ Conftest: FAIL — $COUNT policy violations"
+            echo "Conftest Result: FAIL — $COUNT policy violations"
           fi
         '''
       }
