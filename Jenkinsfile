@@ -2,7 +2,7 @@ pipeline {
   agent any
 
   environment {
-    K8S_DIR = "k8s"
+    K8S_DIR    = "k8s"
     POLICY_DIR = "policies"
     REPORT_DIR = "reports"
   }
@@ -10,6 +10,7 @@ pipeline {
   options {
     timestamps()
     disableConcurrentBuilds()
+    ansiColor('xterm')
   }
 
   stages {
@@ -23,6 +24,7 @@ pipeline {
     stage('Prepare Workspace') {
       steps {
         sh '''
+          set -e
           rm -rf $REPORT_DIR
           mkdir -p $REPORT_DIR
         '''
@@ -64,37 +66,37 @@ pipeline {
     stage('Kubernetes Security Scan - kubesec') {
       steps {
         sh '''
-        echo "Running kubesec (only scanning workload resources)..."
-        echo "[" > $REPORT_DIR/kubesec.json
-        first=true
+          echo "Running kubesec (workload resources only)..."
 
-        for file in $(find $K8S_DIR -name "*.yaml"); do
-          kind=$(yq e '.kind' "$file")
+          echo "[" > $REPORT_DIR/kubesec.json
+          first=true
 
-          case "$kind" in
-            Deployment|StatefulSet|DaemonSet|Job|CronJob)
-            echo "Scanning $file ($kind)"
-            result=$(kubesec scan "$file" 2>/dev/null || true)
+          for file in $(find $K8S_DIR -name "*.yaml"); do
+            kind=$(yq e '.kind' "$file")
 
-            if [ "$first" = true ]; then
-              first=false
-            else
-              echo "," >> $REPORT_DIR/kubesec.json
-            fi
+            case "$kind" in
+              Deployment|StatefulSet|DaemonSet|Job|CronJob)
+                echo "Scanning $file ($kind)"
+                result=$(kubesec scan "$file" 2>/dev/null || true)
 
-            echo "$result" >> $REPORT_DIR/kubesec.json
-            ;;
-          *)
-            echo "Skipping unsupported kind $kind in $file"
-            ;;
-        esac
-        done
+                if [ "$first" = true ]; then
+                  first=false
+                else
+                  echo "," >> $REPORT_DIR/kubesec.json
+                fi
 
-        echo "]" >> $REPORT_DIR/kubesec.json
+                echo "$result" >> $REPORT_DIR/kubesec.json
+                ;;
+              *)
+                echo "Skipping unsupported kind $kind in $file"
+                ;;
+            esac
+          done
+
+          echo "]" >> $REPORT_DIR/kubesec.json
         '''
       }
     }
-
 
     stage('IaC Security Scan - Checkov') {
       steps {
@@ -109,7 +111,13 @@ pipeline {
       steps {
         sh '''
           echo "Running Conftest..."
-          conftest test $K8S_DIR --policy $POLICY_DIR -o json > $REPORT_DIR/conftest.json || true
+
+          if [ -d "$POLICY_DIR" ]; then
+            conftest test $K8S_DIR --policy $POLICY_DIR -o json > $REPORT_DIR/conftest.json || true
+          else
+            echo "[]" > $REPORT_DIR/conftest.json
+            echo "WARNING: Policy directory missing. Skipping policy enforcement."
+          fi
         '''
       }
     }
@@ -117,6 +125,7 @@ pipeline {
     stage('Generate Security Report') {
       steps {
         sh '''
+          echo "Generating consolidated security report..."
           python3 scripts/generate_report.py
         '''
       }
@@ -126,13 +135,15 @@ pipeline {
 
   post {
     always {
-      archiveArtifacts artifacts: 'security-report.html, security-report.json, reports/**', fingerprint: true
+      archiveArtifacts artifacts: 'reports/**, security-report.html, security-report.json', fingerprint: true
     }
+
     success {
       echo "DevSecOps Security Validation PASSED"
     }
+
     failure {
-      echo "Security Validation FAILED – Review Security Report"
+      echo "Security Validation FAILED — Review Security Report"
     }
   }
 }
