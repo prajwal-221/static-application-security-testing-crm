@@ -10,10 +10,6 @@ OUTPUT_JSON = REPORT_DIR / "security-report.json"
 OUTPUT_HTML = REPORT_DIR / "security-report.html"
 
 
-# ----------------------------
-# Utility Functions
-# ----------------------------
-
 def safe_read_json(path):
     if not path.exists() or path.stat().st_size == 0:
         return []
@@ -24,7 +20,6 @@ def safe_read_json(path):
 
 
 def flatten(data):
-    """Flatten nested kubesec outputs safely"""
     if isinstance(data, list):
         result = []
         for item in data:
@@ -36,18 +31,7 @@ def flatten(data):
     return data
 
 
-# ----------------------------
-# yamllint Parsing (FIXED)
-# ----------------------------
-
 def parse_yamllint():
-    """
-    Parses yamllint output captured in:
-    reports/yamllint.txt
-
-    Format:
-    file:line:column: [level] message
-    """
     yamllint_txt = REPORT_DIR / "yamllint.txt"
     results = []
 
@@ -70,10 +54,6 @@ def parse_yamllint():
     return results
 
 
-# ----------------------------
-# kube-score Parsing
-# ----------------------------
-
 def parse_kubescore(kubescore):
     critical = []
     warning = []
@@ -90,10 +70,6 @@ def parse_kubescore(kubescore):
 
     return critical, warning
 
-
-# ----------------------------
-# kubesec Parsing
-# ----------------------------
 
 def parse_kubesec(kubesec):
     findings = []
@@ -113,10 +89,6 @@ def parse_kubesec(kubesec):
     return findings
 
 
-# ----------------------------
-# checkov Parsing
-# ----------------------------
-
 def parse_checkov(checkov):
     failed = []
 
@@ -133,10 +105,6 @@ def parse_checkov(checkov):
     return failed
 
 
-# ----------------------------
-# Main Report Logic
-# ----------------------------
-
 def main():
     yamllint = parse_yamllint()
     kubeconform = safe_read_json(REPORT_DIR / "kubeconform.json")
@@ -152,7 +120,7 @@ def main():
     summary = {
         "generated_at": datetime.now(timezone.utc).isoformat(),
         "yamllint_warnings": len(yamllint),
-        "kubeconform_invalid": kubeconform.get("summary", {}).get("invalid", 0),
+        "kubeconform_invalid": kubeconform.get("summary", {}).get("invalid", 0) if isinstance(kubeconform, dict) else 0,
         "kube_score_critical": len(kubescore_critical),
         "kube_score_warning": len(kubescore_warning),
         "kubesec_findings": len(kubesec_findings),
@@ -177,10 +145,6 @@ def main():
     print(" - reports/security-report.json")
     print(" - reports/security-report.html")
 
-
-# ----------------------------
-# HTML Generator
-# ----------------------------
 
 def generate_html(summary, data):
     html = f"""

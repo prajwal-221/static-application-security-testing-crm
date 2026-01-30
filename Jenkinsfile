@@ -35,6 +35,13 @@ pipeline {
         sh '''
           echo "Running yamllint..."
           yamllint -f parsable -d relaxed $K8S_DIR > $REPORT_DIR/yamllint.txt || true
+
+          COUNT=$(wc -l < $REPORT_DIR/yamllint.txt || echo 0)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "✅ YAML Lint: PASS — No issues found"
+          else
+            echo "⚠️  YAML Lint: WARN — $COUNT warnings detected"
+          fi
         '''
       }
     }
@@ -47,8 +54,16 @@ pipeline {
             xargs -0 kubeconform \
               -strict \
               -summary \
+              -verbose \
               -output json \
-              -ignore-missing-schemas > $REPORT_DIR/kubeconform.json || true
+              -ignore-missing-schemas | tee $REPORT_DIR/kubeconform.json || true
+
+          INVALID=$(jq '.summary.invalid' $REPORT_DIR/kubeconform.json 2>/dev/null || echo 0)
+          if [ "$INVALID" -eq 0 ]; then
+            echo "✅ Kubeconform: PASS — All schemas valid"
+          else
+            echo "❌ Kubeconform: FAIL — $INVALID invalid resources"
+          fi
         '''
       }
     }
@@ -58,6 +73,19 @@ pipeline {
         sh '''
           echo "Running kube-score..."
           kube-score score $K8S_DIR/**/*.yaml -o json > $REPORT_DIR/kube-score.json || true
+
+          CRITICAL=$(jq '[.[] | .checks[] | select(.grade <= 3)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
+          WARNING=$(jq '[.[] | .checks[] | select(.grade > 3 and .grade <= 6)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
+
+          if [ "$CRITICAL" -eq 0 ]; then
+            echo "✅ Kube-score: PASS — No critical findings"
+          else
+            echo "❌ Kube-score: FAIL — $CRITICAL critical findings"
+          fi
+
+          if [ "$WARNING" -gt 0 ]; then
+            echo "⚠️  Kube-score: WARN — $WARNING warnings detected"
+          fi
         '''
       }
     }
@@ -87,12 +115,19 @@ pipeline {
                 echo "$result" >> $REPORT_DIR/kubesec.json
                 ;;
               *)
-                echo "Skipping unsupported kind $kind in $file"
                 ;;
             esac
           done
 
           echo "]" >> $REPORT_DIR/kubesec.json
+
+          FINDINGS=$(jq '[.[] | .scoring.advise[]] | length' $REPORT_DIR/kubesec.json 2>/dev/null || echo 0)
+
+          if [ "$FINDINGS" -eq 0 ]; then
+            echo "✅ Kubesec: PASS — No security findings"
+          else
+            echo "⚠️  Kubesec: WARN — $FINDINGS security recommendations"
+          fi
         '''
       }
     }
@@ -102,6 +137,14 @@ pipeline {
         sh '''
           echo "Running Checkov..."
           checkov -d $K8S_DIR -o json > $REPORT_DIR/checkov.json || true
+
+          FAILED=$(jq '.results.failed_checks | length' $REPORT_DIR/checkov.json 2>/dev/null || echo 0)
+
+          if [ "$FAILED" -eq 0 ]; then
+            echo "✅ Checkov: PASS — No failed policies"
+          else
+            echo "❌ Checkov: FAIL — $FAILED failed checks"
+          fi
         '''
       }
     }
@@ -111,11 +154,19 @@ pipeline {
         sh '''
           echo "Running Conftest..."
 
-          if [ -d "$POLICY_DIR" ]; then
-            conftest test $K8S_DIR --policy $POLICY_DIR -o json > $REPORT_DIR/conftest.json || true
+          if [ -d "$POLICY_DIR" ] && [ "$(ls -A $POLICY_DIR 2>/dev/null)" ]; then
+            conftest test $K8S_DIR --policy $POLICY_DIR -o json | tee $REPORT_DIR/conftest.json || true
           else
             echo "[]" > $REPORT_DIR/conftest.json
-            echo "WARNING: Policy directory missing. Skipping policy enforcement."
+            echo "⚠️  Conftest: SKIPPED — No policies found"
+          fi
+
+          COUNT=$(jq 'length' $REPORT_DIR/conftest.json 2>/dev/null || echo 0)
+
+          if [ "$COUNT" -eq 0 ]; then
+            echo "✅ Conftest: PASS — No policy violations"
+          else
+            echo "❌ Conftest: FAIL — $COUNT policy violations"
           fi
         '''
       }
