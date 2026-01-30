@@ -186,7 +186,8 @@ pipeline {
       steps {
         sh '''
           kubectl apply -f https://litmuschaos.github.io/litmus/litmus-operator-v3.0.0.yaml
-          kubectl wait --for=condition=Ready pods -l app=chaos-operator -n litmus --timeout=180s
+          kubectl rollout status deployment/chaos-operator-ce -n litmus --timeout=180s
+          kubectl wait --for=condition=Available deployment chaos-operator-ce -n litmus --timeout=180s
         '''
       }
     }
