@@ -8,6 +8,7 @@ REPORT_DIR = Path("reports")
 OUTPUT_JSON = REPORT_DIR / "security-report.json"
 OUTPUT_HTML = REPORT_DIR / "security-report.html"
 
+
 def safe_read(path):
     if not path.exists() or path.stat().st_size == 0:
         return None
@@ -15,6 +16,7 @@ def safe_read(path):
         return json.loads(path.read_text())
     except Exception:
         return None
+
 
 # ----------------------------
 # Load Raw Tool Outputs
@@ -31,21 +33,13 @@ conftest_raw = safe_read(REPORT_DIR / "conftest.json")
 # yamllint Parsing
 # ----------------------------
 
-yamllint_issues = []
-if isinstance(yamllint_raw, list):
-    yamllint_issues = yamllint_raw
+yamllint_issues = yamllint_raw if isinstance(yamllint_raw, list) else []
 
 # ----------------------------
 # kubeconform Parsing
 # ----------------------------
 
-kubeconform_summary = {
-    "valid": 0,
-    "invalid": 0,
-    "errors": 0,
-    "skipped": 0
-}
-
+kubeconform_summary = {"valid": 0, "invalid": 0, "errors": 0, "skipped": 0}
 if isinstance(kubeconform_raw, dict):
     kubeconform_summary = kubeconform_raw.get("summary", kubeconform_summary)
 
@@ -68,20 +62,32 @@ if isinstance(kubescore_raw, list):
                 kubescore_warning.append(check)
 
 # ----------------------------
-# kubesec Parsing
+# kubesec Parsing (FIXED)
 # ----------------------------
 
 kubesec_findings = []
 
 if isinstance(kubesec_raw, list):
-    for entry in kubesec_raw:
-        advise = entry.get("scoring", {}).get("advise", [])
-        if advise:
-            kubesec_findings.append({
-                "object": entry.get("object"),
-                "score": entry.get("score"),
-                "advise": advise
-            })
+    for block in kubesec_raw:
+        # kubesec output may be: [ {...} ]  OR  {...}
+        if isinstance(block, list):
+            entries = block
+        elif isinstance(block, dict):
+            entries = [block]
+        else:
+            continue
+
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+
+            advise = entry.get("scoring", {}).get("advise", [])
+            if advise:
+                kubesec_findings.append({
+                    "object": entry.get("object"),
+                    "score": entry.get("score"),
+                    "advise": advise
+                })
 
 # ----------------------------
 # checkov Parsing
@@ -108,7 +114,7 @@ if isinstance(checkov_raw, list):
 conftest_violations = conftest_raw if isinstance(conftest_raw, list) else []
 
 # ----------------------------
-# Final Report Structure
+# Final Report Object
 # ----------------------------
 
 report = {
@@ -136,7 +142,7 @@ report = {
 OUTPUT_JSON.write_text(json.dumps(report, indent=2))
 
 # ----------------------------
-# Generate HTML Dashboard
+# HTML Dashboard Generation
 # ----------------------------
 
 def section(title, content):
@@ -193,5 +199,5 @@ pre {{ white-space:pre-wrap; word-break:break-word }}
 OUTPUT_HTML.write_text(html)
 
 print("Security reports generated successfully.")
-print(f"JSON  → {OUTPUT_JSON}")
-print(f"HTML  → {OUTPUT_HTML}")
+print(f"JSON → {OUTPUT_JSON}")
+print(f"HTML → {OUTPUT_HTML}")
