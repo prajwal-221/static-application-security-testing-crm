@@ -185,39 +185,121 @@ pipeline {
     stage('Install LitmusChaos') {
       steps {
         sh '''
+          # Install LitmusChaos operator
           kubectl apply -f https://litmuschaos.github.io/litmus/litmus-operator-v3.0.0.yaml
           kubectl rollout status deployment/chaos-operator-ce -n litmus --timeout=180s
           kubectl wait --for=condition=Available deployment chaos-operator-ce -n litmus --timeout=180s
+          
+          # Create litmus namespace if not exists
+          kubectl create namespace litmus --dry-run=client -o yaml | kubectl apply -f -
+          
+          # Apply chaos experiments (one-time setup)
+          kubectl apply -f chaos/experiments/
         '''
       }
     }
 
-    stage('Chaos Test - Pod Failure Injection') {
+    stage('Chaos Test - Frontend Pod Deletion') {
       steps {
         sh '''
-          kubectl apply -f chaos/pod-delete.yaml
-          sleep 60
-          kubectl delete -f chaos/pod-delete.yaml
-        '''
-      }
-    }
-
-    stage('Chaos Test - Network Chaos') {
-      steps {
-        sh '''
-          kubectl apply -f chaos/network-chaos.yaml
+          echo "Starting Frontend Pod Deletion Test..."
+          kubectl apply -f chaos/engines/pod-delete-engine.yaml
           sleep 90
-          kubectl delete -f chaos/network-chaos.yaml
+          kubectl delete chaosengine pod-delete-chaos -n litmus --ignore-not-found
         '''
       }
     }
 
-    stage('Chaos Test - CPU & Memory Stress') {
+    stage('Chaos Test - Frontend Network Latency') {
       steps {
         sh '''
-          kubectl apply -f chaos/resource-stress.yaml
+          echo "Starting Frontend Network Latency Test..."
+          kubectl apply -f chaos/engines/network-chaos-engine.yaml
           sleep 120
-          kubectl delete -f chaos/resource-stress.yaml
+          kubectl delete chaosengine network-latency-chaos -n litmus --ignore-not-found
+        '''
+      }
+    }
+
+    stage('Chaos Test - Frontend CPU Stress') {
+      steps {
+        sh '''
+          echo "Starting Frontend CPU Stress Test..."
+          kubectl apply -f chaos/engines/cpu-chaos-engine.yaml
+          sleep 120
+          kubectl delete chaosengine cpu-hog-chaos -n litmus --ignore-not-found
+        '''
+      }
+    }
+
+    stage('Chaos Test - Frontend Memory Stress') {
+      steps {
+        sh '''
+          echo "Starting Frontend Memory Stress Test..."
+          kubectl apply -f chaos/engines/memory-chaos-engine.yaml
+          sleep 120
+          kubectl delete chaosengine memory-hog-chaos -n litmus --ignore-not-found
+        '''
+      }
+    }
+
+    stage('Chaos Test - Backend Pod Deletion') {
+      steps {
+        sh '''
+          echo "Starting Backend Pod Deletion Test..."
+          kubectl apply -f chaos/engines/backend-pod-delete-engine.yaml
+          sleep 90
+          kubectl delete chaosengine backend-pod-delete-chaos -n litmus --ignore-not-found
+        '''
+      }
+    }
+
+    stage('Chaos Test - Backend CPU Stress') {
+      steps {
+        sh '''
+          echo "Starting Backend CPU Stress Test..."
+          kubectl apply -f chaos/engines/backend-cpu-chaos-engine.yaml
+          sleep 120
+          kubectl delete chaosengine backend-cpu-hog-chaos -n litmus --ignore-not-found
+        '''
+      }
+    }
+
+    stage('Chaos Test - Backend Network Latency') {
+      steps {
+        sh '''
+          echo "Starting Backend Network Latency Test..."
+          kubectl apply -f chaos/engines/backend-network-chaos-engine.yaml
+          sleep 120
+          kubectl delete chaosengine backend-network-latency-chaos -n litmus --ignore-not-found
+        '''
+      }
+    }
+
+    stage('Chaos Test - Backend Memory Stress') {
+      steps {
+        sh '''
+          echo "Starting Backend Memory Stress Test..."
+          kubectl apply -f chaos/engines/backend-memory-chaos-engine.yaml
+          sleep 120
+          kubectl delete chaosengine backend-memory-hog-chaos -n litmus --ignore-not-found
+        '''
+      }
+    }
+
+    stage('Chaos Cleanup') {
+      steps {
+        sh '''
+          echo "Cleaning up chaos resources..."
+          # Clean up all chaos engines
+          kubectl delete chaosengine --all -n litmus --ignore-not-found
+          
+          # Clean up chaos experiments
+          kubectl delete chaosexperiment --all -n litmus --ignore-not-found
+          
+          # Wait for deployments to be ready
+          kubectl rollout status deployment/backend -n idurar --timeout=180s
+          kubectl rollout status deployment/frontend -n idurar --timeout=180s
         '''
       }
     }
@@ -225,16 +307,25 @@ pipeline {
     stage('Auto-Healing Validation') {
       steps {
         sh '''
+          echo "Validating auto-healing..."
+          
+          # Check deployment status
           kubectl rollout status deployment backend -n idurar --timeout=180s
           kubectl rollout status deployment frontend -n idurar --timeout=180s
 
-          READY=$(kubectl get deploy backend frontend -n idurar -o jsonpath='{.items[*].status.readyReplicas}')
+          # Get ready replicas
+          BACKEND_READY=$(kubectl get deploy backend -n idurar -o jsonpath='{.status.readyReplicas}')
+          FRONTEND_READY=$(kubectl get deploy frontend -n idurar -o jsonpath='{.status.readyReplicas}')
 
-          if echo "$READY" | grep -q "0"; then
-            echo "Auto-healing FAILED"
+          echo "Backend ready replicas: $BACKEND_READY"
+          echo "Frontend ready replicas: $FRONTEND_READY"
+
+          # Check if all replicas are ready
+          if [ "$BACKEND_READY" = "0" ] || [ "$FRONTEND_READY" = "0" ]; then
+            echo "Auto-healing FAILED - Some replicas are not ready"
             exit 1
           else
-            echo "Auto-healing SUCCESS"
+            echo "Auto-healing SUCCESS - All replicas are ready"
           fi
         '''
       }
@@ -244,15 +335,26 @@ pipeline {
 
   post {
     always {
+      // Archive all reports
       archiveArtifacts artifacts: 'reports/**, security-report.html, security-report.json', fingerprint: true
+      
+      // Clean up chaos resources regardless of pipeline status
+      sh '''
+        echo "Final chaos cleanup..."
+        kubectl delete chaosengine --all -n litmus --ignore-not-found || true
+        kubectl delete chaosexperiment --all -n litmus --ignore-not-found || true
+      '''
     }
 
     success {
-      echo "DevSecOps + Chaos Engineering Pipeline PASSED"
+      echo "DevSecOps + Chaos Engineering Pipeline PASSED ✅"
+      echo "All security and resilience tests completed successfully"
     }
 
     failure {
-      echo "Pipeline FAILED — Review Security & Chaos Reports"
+      echo "Pipeline FAILED ❌"
+      echo "Review Security & Chaos Reports"
+      echo "Check chaos results with: kubectl get chaosresult -n litmus"
     }
   }
 }
