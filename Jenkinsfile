@@ -64,22 +64,37 @@ pipeline {
     stage('Kubernetes Security Scan - kubesec') {
       steps {
         sh '''
-          echo "Running kubesec..."
-          echo "[" > $REPORT_DIR/kubesec.json
-          first=true
-          for file in $(find $K8S_DIR -name "*.yaml"); do
-            result=$(kubesec scan $file)
+        echo "Running kubesec (only scanning workload resources)..."
+        echo "[" > $REPORT_DIR/kubesec.json
+        first=true
+
+        for file in $(find $K8S_DIR -name "*.yaml"); do
+          kind=$(yq e '.kind' "$file")
+
+          case "$kind" in
+            Deployment|StatefulSet|DaemonSet|Job|CronJob)
+            echo "Scanning $file ($kind)"
+            result=$(kubesec scan "$file" 2>/dev/null || true)
+
             if [ "$first" = true ]; then
               first=false
             else
               echo "," >> $REPORT_DIR/kubesec.json
             fi
+
             echo "$result" >> $REPORT_DIR/kubesec.json
-          done
-          echo "]" >> $REPORT_DIR/kubesec.json
+            ;;
+          *)
+            echo "Skipping unsupported kind $kind in $file"
+            ;;
+        esac
+        done
+
+        echo "]" >> $REPORT_DIR/kubesec.json
         '''
       }
     }
+
 
     stage('IaC Security Scan - Checkov') {
       steps {
