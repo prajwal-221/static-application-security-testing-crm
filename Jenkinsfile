@@ -195,3 +195,95 @@ pipeline {
     }
   }
 }
+
+
+
+
+    stage('Chaos Readiness Validation') {
+      steps {
+        sh '''
+          echo "Validating Kubernetes cluster readiness for chaos testing..."
+
+          kubectl get nodes
+          kubectl get pods -A | grep -i running
+
+          echo "Cluster ready for chaos testing"
+        '''
+      }
+    }
+
+
+    stage('Install LitmusChaos') {
+      steps {
+        sh '''
+          echo "Installing LitmusChaos..."
+
+          kubectl apply -f https://litmuschaos.github.io/litmus/litmus-operator-v3.0.0.yaml
+
+          kubectl wait --for=condition=Ready pods -l app=chaos-operator -n litmus --timeout=180s
+        '''
+      }
+    }
+
+    stage('Chaos Test - Pod Failure Injection') {
+      steps {
+        sh '''
+          echo "Injecting pod failure chaos..."
+
+          kubectl apply -f chaos/pod-delete.yaml
+
+          sleep 60
+
+          kubectl delete -f chaos/pod-delete.yaml
+        '''
+      }
+    }
+
+    stage('Chaos Test - Network Chaos') {
+      steps {
+        sh '''
+          echo "Injecting network chaos..."
+
+          kubectl apply -f chaos/network-chaos.yaml
+
+          sleep 90
+
+          kubectl delete -f chaos/network-chaos.yaml
+        '''
+      }
+    }
+
+    stage('Chaos Test - CPU & Memory Stress') {
+      steps {
+        sh '''
+          echo "Injecting CPU and memory stress..."
+
+          kubectl apply -f chaos/resource-stress.yaml
+
+          sleep 120
+
+          kubectl delete -f chaos/resource-stress.yaml
+        '''
+      }
+    }
+
+    stage('Auto-Healing Validation') {
+      steps {
+        sh '''
+          echo "Validating auto-healing behavior..."
+
+          kubectl rollout status deployment backend -n idurar --timeout=180s
+          kubectl rollout status deployment frontend -n idurar --timeout=180s
+
+          READY=$(kubectl get deploy backend frontend -n idurar -o jsonpath='{.items[*].status.readyReplicas}')
+
+          if echo "$READY" | grep -q "0"; then
+            echo "Auto-healing FAILED"
+            exit 1
+          else
+            echo "Auto-healing SUCCESS"
+          fi
+        '''
+      }
+    }
+
