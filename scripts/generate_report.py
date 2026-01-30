@@ -1,105 +1,128 @@
 #!/usr/bin/env python3
 
 import json
-from pathlib import Path
-from datetime import datetime, UTC
+import pathlib
+import re
+from datetime import datetime, timezone
 
-REPORT_DIR = Path("reports")
+REPORT_DIR = pathlib.Path("reports")
 OUTPUT_JSON = REPORT_DIR / "security-report.json"
 OUTPUT_HTML = REPORT_DIR / "security-report.html"
 
 
-def safe_read(path):
+# ----------------------------
+# Utility Functions
+# ----------------------------
+
+def safe_read_json(path):
     if not path.exists() or path.stat().st_size == 0:
-        return None
+        return []
     try:
         return json.loads(path.read_text())
     except Exception:
-        return None
+        return []
+
+
+def flatten(data):
+    """Flatten nested kubesec outputs safely"""
+    if isinstance(data, list):
+        result = []
+        for item in data:
+            if isinstance(item, list):
+                result.extend(flatten(item))
+            else:
+                result.append(item)
+        return result
+    return data
 
 
 # ----------------------------
-# Load Raw Tool Outputs
+# yamllint Parsing (FIXED)
 # ----------------------------
 
-yamllint_raw = safe_read(REPORT_DIR / "yamllint.json")
-kubeconform_raw = safe_read(REPORT_DIR / "kubeconform.json")
-kubescore_raw = safe_read(REPORT_DIR / "kube-score.json")
-kubesec_raw = safe_read(REPORT_DIR / "kubesec.json")
-checkov_raw = safe_read(REPORT_DIR / "checkov.json")
-conftest_raw = safe_read(REPORT_DIR / "conftest.json")
+def parse_yamllint():
+    """
+    Parses yamllint output captured in:
+    reports/yamllint.txt
 
-# ----------------------------
-# yamllint Parsing
-# ----------------------------
+    Format:
+    file:line:column: [level] message
+    """
+    yamllint_txt = REPORT_DIR / "yamllint.txt"
+    results = []
 
-yamllint_issues = yamllint_raw if isinstance(yamllint_raw, list) else []
+    if not yamllint_txt.exists():
+        return results
 
-# ----------------------------
-# kubeconform Parsing
-# ----------------------------
+    pattern = re.compile(r"(.*):(\d+):(\d+): \[(\w+)\] (.*)")
 
-kubeconform_summary = {"valid": 0, "invalid": 0, "errors": 0, "skipped": 0}
-if isinstance(kubeconform_raw, dict):
-    kubeconform_summary = kubeconform_raw.get("summary", kubeconform_summary)
+    for line in yamllint_txt.read_text().splitlines():
+        match = pattern.match(line.strip())
+        if match:
+            results.append({
+                "file": match.group(1),
+                "line": int(match.group(2)),
+                "column": int(match.group(3)),
+                "level": match.group(4),
+                "message": match.group(5)
+            })
+
+    return results
+
 
 # ----------------------------
 # kube-score Parsing
 # ----------------------------
 
-kubescore_critical = []
-kubescore_warning = []
+def parse_kubescore(kubescore):
+    critical = []
+    warning = []
 
-if isinstance(kubescore_raw, list):
-    for obj in kubescore_raw:
+    for obj in kubescore:
         for check in obj.get("checks", []):
             if check.get("skipped"):
                 continue
             grade = check.get("grade", 10)
             if grade <= 3:
-                kubescore_critical.append(check)
+                critical.append(check)
             elif grade <= 6:
-                kubescore_warning.append(check)
+                warning.append(check)
+
+    return critical, warning
+
 
 # ----------------------------
-# kubesec Parsing (FIXED)
+# kubesec Parsing
 # ----------------------------
 
-kubesec_findings = []
+def parse_kubesec(kubesec):
+    findings = []
 
-if isinstance(kubesec_raw, list):
-    for block in kubesec_raw:
-        # kubesec output may be: [ {...} ]  OR  {...}
-        if isinstance(block, list):
-            entries = block
-        elif isinstance(block, dict):
-            entries = [block]
-        else:
+    for entry in flatten(kubesec):
+        if not isinstance(entry, dict):
             continue
 
-        for entry in entries:
-            if not isinstance(entry, dict):
-                continue
+        advise = entry.get("scoring", {}).get("advise", [])
+        if advise:
+            findings.append({
+                "object": entry.get("object"),
+                "score": entry.get("score"),
+                "advise": advise
+            })
 
-            advise = entry.get("scoring", {}).get("advise", [])
-            if advise:
-                kubesec_findings.append({
-                    "object": entry.get("object"),
-                    "score": entry.get("score"),
-                    "advise": advise
-                })
+    return findings
+
 
 # ----------------------------
 # checkov Parsing
 # ----------------------------
 
-checkov_failed = []
+def parse_checkov(checkov):
+    failed = []
 
-if isinstance(checkov_raw, list):
-    for block in checkov_raw:
-        results = block.get("results", {})
-        for fail in results.get("failed_checks", []):
-            checkov_failed.append({
+    if isinstance(checkov, dict):
+        for fail in checkov.get("results", {}).get("failed_checks", []):
+            failed.append({
                 "id": fail.get("check_id"),
                 "name": fail.get("check_name"),
                 "severity": fail.get("severity"),
@@ -107,48 +130,60 @@ if isinstance(checkov_raw, list):
                 "guideline": fail.get("guideline")
             })
 
-# ----------------------------
-# conftest Parsing
-# ----------------------------
+    return failed
 
-conftest_violations = conftest_raw if isinstance(conftest_raw, list) else []
 
 # ----------------------------
-# Final Report Object
+# Main Report Logic
 # ----------------------------
 
-report = {
-    "generated_at": datetime.now(UTC).isoformat(),
-    "summary": {
-        "yamllint_warnings": len(yamllint_issues),
-        "kubeconform_invalid": kubeconform_summary.get("invalid", 0),
-        "kubescore_critical": len(kubescore_critical),
-        "kubescore_warning": len(kubescore_warning),
+def main():
+    yamllint = parse_yamllint()
+    kubeconform = safe_read_json(REPORT_DIR / "kubeconform.json")
+    kubescore_raw = safe_read_json(REPORT_DIR / "kube-score.json")
+    kubesec_raw = safe_read_json(REPORT_DIR / "kubesec.json")
+    checkov_raw = safe_read_json(REPORT_DIR / "checkov.json")
+    conftest = safe_read_json(REPORT_DIR / "conftest.json")
+
+    kubescore_critical, kubescore_warning = parse_kubescore(kubescore_raw)
+    kubesec_findings = parse_kubesec(kubesec_raw)
+    checkov_failed = parse_checkov(checkov_raw)
+
+    summary = {
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "yamllint_warnings": len(yamllint),
+        "kubeconform_invalid": kubeconform.get("summary", {}).get("invalid", 0),
+        "kube_score_critical": len(kubescore_critical),
+        "kube_score_warning": len(kubescore_warning),
         "kubesec_findings": len(kubesec_findings),
         "checkov_failed": len(checkov_failed),
-        "conftest_violations": len(conftest_violations)
-    },
-    "details": {
-        "yamllint": yamllint_issues,
-        "kubeconform": kubeconform_summary,
-        "kube_score_critical": kubescore_critical,
-        "kube_score_warning": kubescore_warning,
+        "conftest_violations": len(conftest) if isinstance(conftest, list) else 0
+    }
+
+    report = {
+        "summary": summary,
+        "yamllint": yamllint,
+        "kubeconform": kubeconform,
+        "kube-score": kubescore_raw,
         "kubesec": kubesec_findings,
         "checkov": checkov_failed,
-        "conftest": conftest_violations
+        "conftest": conftest
     }
-}
 
-OUTPUT_JSON.write_text(json.dumps(report, indent=2))
+    OUTPUT_JSON.write_text(json.dumps(report, indent=2))
+    OUTPUT_HTML.write_text(generate_html(summary, report))
+
+    print("Security reports generated successfully")
+    print(" - reports/security-report.json")
+    print(" - reports/security-report.html")
+
 
 # ----------------------------
-# HTML Dashboard Generation
+# HTML Generator
 # ----------------------------
 
-def section(title, content):
-    return f"<div class='card'><h3>{title}</h3><pre>{json.dumps(content, indent=2)}</pre></div>"
-
-html = f"""
+def generate_html(summary, data):
+    html = f"""
 <!DOCTYPE html>
 <html>
 <head>
@@ -168,36 +203,34 @@ pre {{ white-space:pre-wrap; word-break:break-word }}
 </head>
 <body>
 
-<h1>🔐 Kubernetes DevSecOps Security Report</h1>
-<p><b>Generated:</b> {report["generated_at"]}</p>
+<h1>Kubernetes DevSecOps Security Report</h1>
+<p><b>Generated:</b> {summary["generated_at"]}</p>
 
-<h2>📊 Summary</h2>
+<h2>Summary</h2>
 <div class="card summary">
-  <span class="warn">yamllint warnings: {report["summary"]["yamllint_warnings"]}</span>
-  <span class="good">kubeconform invalid: {report["summary"]["kubeconform_invalid"]}</span>
-  <span class="bad">kube-score critical: {report["summary"]["kubescore_critical"]}</span>
-  <span class="warn">kube-score warnings: {report["summary"]["kubescore_warning"]}</span>
-  <span class="warn">kubesec findings: {report["summary"]["kubesec_findings"]}</span>
-  <span class="bad">checkov failed: {report["summary"]["checkov_failed"]}</span>
-  <span class="good">conftest violations: {report["summary"]["conftest_violations"]}</span>
+  <span class="warn">yamllint warnings: {summary["yamllint_warnings"]}</span>
+  <span class="good">kubeconform invalid: {summary["kubeconform_invalid"]}</span>
+  <span class="bad">kube-score critical: {summary["kube_score_critical"]}</span>
+  <span class="warn">kube-score warnings: {summary["kube_score_warning"]}</span>
+  <span class="warn">kubesec findings: {summary["kubesec_findings"]}</span>
+  <span class="bad">checkov failed: {summary["checkov_failed"]}</span>
+  <span class="good">conftest violations: {summary["conftest_violations"]}</span>
 </div>
 
 <h2>🔎 Detailed Findings</h2>
-
-{section("yamllint", report["details"]["yamllint"])}
-{section("kubeconform", report["details"]["kubeconform"])}
-{section("kube-score (CRITICAL)", report["details"]["kube_score_critical"])}
-{section("kube-score (WARNING)", report["details"]["kube_score_warning"])}
-{section("kubesec", report["details"]["kubesec"])}
-{section("checkov", report["details"]["checkov"])}
-{section("conftest", report["details"]["conftest"])}
-
-</body>
-</html>
 """
 
-OUTPUT_HTML.write_text(html)
+    for tool, content in data.items():
+        html += f"""
+<div class='card'>
+<h3>{tool}</h3>
+<pre>{json.dumps(content, indent=2)}</pre>
+</div>
+"""
 
-print("Security reports generated successfully.")
-print(f"JSON → {OUTPUT_JSON}")
-print(f"HTML → {OUTPUT_HTML}")
+    html += "</body></html>"
+    return html
+
+
+if __name__ == "__main__":
+    main()
