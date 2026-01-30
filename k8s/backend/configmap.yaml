@@ -1,0 +1,9 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: backend-config
+  namespace: idurar
+data:
+  NODE_ENV: "development"
+  PORT: "4000"
+  PUBLIC_SERVER_FILE: "http://backend:4000/"
