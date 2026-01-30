@@ -51,7 +51,6 @@ pipeline {
       steps {
         sh '''
           yamllint -f parsable -d relaxed $K8S_DIR > $REPORT_DIR/yamllint.txt || true
-
           COUNT=$(wc -l < $REPORT_DIR/yamllint.txt || echo 0)
 
           if [ "$COUNT" -eq 0 ]; then
@@ -108,17 +107,10 @@ pipeline {
 
           for file in $(find $K8S_DIR -name "*.yaml"); do
             kind=$(yq e '.kind' "$file")
-
             case "$kind" in
               Deployment|StatefulSet|DaemonSet|Job|CronJob)
                 result=$(kubesec scan "$file" 2>/dev/null || true)
-
-                if [ "$first" = true ]; then
-                  first=false
-                else
-                  echo "," >> $REPORT_DIR/kubesec.json
-                fi
-
+                if [ "$first" = true ]; then first=false; else echo "," >> $REPORT_DIR/kubesec.json; fi
                 echo "$result" >> $REPORT_DIR/kubesec.json
                 ;;
             esac
@@ -141,7 +133,6 @@ pipeline {
       steps {
         sh '''
           checkov -d $K8S_DIR -o json > $REPORT_DIR/checkov.json || true
-
           FAILED=$(jq '.results.failed_checks | length' $REPORT_DIR/checkov.json 2>/dev/null || echo 0)
 
           if [ "$FAILED" -eq 0 ]; then
@@ -179,45 +170,22 @@ pipeline {
       }
     }
 
-  }
-
-  post {
-    always {
-      archiveArtifacts artifacts: 'reports/**, security-report.html, security-report.json', fingerprint: true
-    }
-
-    success {
-      echo "DevSecOps Security Validation PASSED"
-    }
-
-    failure {
-      echo "Security Validation FAILED — Review Security Report"
-    }
-  }
-
-
+    /* ---------------- CHAOS ENGINEERING ---------------- */
 
     stage('Chaos Readiness Validation') {
       steps {
         sh '''
-          echo "Validating Kubernetes cluster readiness for chaos testing..."
-
           kubectl get nodes
           kubectl get pods -A | grep -i running
-
           echo "Cluster ready for chaos testing"
         '''
       }
     }
 
-
     stage('Install LitmusChaos') {
       steps {
         sh '''
-          echo "Installing LitmusChaos..."
-
           kubectl apply -f https://litmuschaos.github.io/litmus/litmus-operator-v3.0.0.yaml
-
           kubectl wait --for=condition=Ready pods -l app=chaos-operator -n litmus --timeout=180s
         '''
       }
@@ -226,12 +194,8 @@ pipeline {
     stage('Chaos Test - Pod Failure Injection') {
       steps {
         sh '''
-          echo "Injecting pod failure chaos..."
-
           kubectl apply -f chaos/pod-delete.yaml
-
           sleep 60
-
           kubectl delete -f chaos/pod-delete.yaml
         '''
       }
@@ -240,12 +204,8 @@ pipeline {
     stage('Chaos Test - Network Chaos') {
       steps {
         sh '''
-          echo "Injecting network chaos..."
-
           kubectl apply -f chaos/network-chaos.yaml
-
           sleep 90
-
           kubectl delete -f chaos/network-chaos.yaml
         '''
       }
@@ -254,12 +214,8 @@ pipeline {
     stage('Chaos Test - CPU & Memory Stress') {
       steps {
         sh '''
-          echo "Injecting CPU and memory stress..."
-
           kubectl apply -f chaos/resource-stress.yaml
-
           sleep 120
-
           kubectl delete -f chaos/resource-stress.yaml
         '''
       }
@@ -268,8 +224,6 @@ pipeline {
     stage('Auto-Healing Validation') {
       steps {
         sh '''
-          echo "Validating auto-healing behavior..."
-
           kubectl rollout status deployment backend -n idurar --timeout=180s
           kubectl rollout status deployment frontend -n idurar --timeout=180s
 
@@ -284,4 +238,20 @@ pipeline {
         '''
       }
     }
+
+  }
+
+  post {
+    always {
+      archiveArtifacts artifacts: 'reports/**, security-report.html, security-report.json', fingerprint: true
+    }
+
+    success {
+      echo "DevSecOps + Chaos Engineering Pipeline PASSED"
+    }
+
+    failure {
+      echo "Pipeline FAILED — Review Security & Chaos Reports"
+    }
+  }
 }
