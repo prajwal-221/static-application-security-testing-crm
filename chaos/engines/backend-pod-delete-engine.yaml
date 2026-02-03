@@ -7,9 +7,12 @@ spec:
   engineState: active
   chaosServiceAccount: litmus
 
+  chaosResult:
+    name: backend-pod-delete-chaos-result
+
   appinfo:
     appns: idurar
-    applabel: "backend"
+    applabel: "app=backend"
     appkind: deployment
 
   experiments:
@@ -21,3 +24,15 @@ spec:
               value: "90"
             - name: CHAOS_INTERVAL
               value: "15"
+            - name: PODS_AFFECTED_PERC
+              value: "50"
+            - name: TARGET_CONTAINER
+              value: ""
+            - name: CONTAINER_RUNTIME
+              value: "containerd"
+            - name: SOCKET_PATH
+              value: "/run/containerd/containerd.sock"
+            - name: RAMP_TIME
+              value: "30"
+            - name: LIB_IMAGE
+              value: "litmuschaos/go-runner:3.0.0"

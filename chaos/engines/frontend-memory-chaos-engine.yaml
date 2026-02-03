@@ -1,27 +1,27 @@
 apiVersion: litmuschaos.io/v1alpha1
 kind: ChaosEngine
 metadata:
-  name: backend-network-latency-chaos
+  name: frontend-memory-hog-chaos
   namespace: litmus
 spec:
   engineState: active
   chaosServiceAccount: litmus
 
   chaosResult:
-    name: backend-network-latency-chaos-result
+    name: frontend-memory-hog-chaos-result
 
   appinfo:
     appns: idurar
-    applabel: "app=backend"
+    applabel: "app=frontend"
     appkind: deployment
 
   experiments:
-    - name: pod-network-latency
+    - name: pod-memory-hog
       spec:
         components:
           env:
-            - name: NETWORK_LATENCY
-              value: "2000"   # ms
+            - name: MEMORY_CONSUMPTION
+              value: "500"
             - name: TOTAL_CHAOS_DURATION
               value: "60"
             - name: CHAOS_INTERVAL

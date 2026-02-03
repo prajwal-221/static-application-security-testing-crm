@@ -3,19 +3,49 @@ kind: ChaosExperiment
 metadata:
   name: pod-delete
   namespace: litmus
+  labels:
+    name: pod-delete
 spec:
   definition:
     scope: Namespaced
+    labels:
+      name: pod-delete
     permissions:
       - apiGroups: [""]
-        resources: ["pods"]
+        resources: ["pods","events"]
         verbs: ["create","delete","get","list","patch","update","watch"]
       - apiGroups: ["apps"]
         resources: ["deployments","statefulsets","daemonsets"]
         verbs: ["get","list","watch"]
+      - apiGroups: ["batch"]
+        resources: ["jobs"]
+        verbs: ["create","delete","get","list","patch","update","watch"]
+      - apiGroups: ["litmuschaos.io"]
+        resources: ["chaosengines","chaosexperiments","chaosresults"]
+        verbs: ["create","delete","get","list","patch","update","watch"]
     image: litmuschaos/go-runner:3.0.0
     imagePullPolicy: Always
-    command: ["/bin/bash"]
+    command:
+      - /bin/bash
     args:
       - -c
       - ./experiments -name pod-delete
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "60"
+      - name: CHAOS_INTERVAL
+        value: "15"
+      - name: FORCE
+        value: "false"
+      - name: PODS_AFFECTED_PERC
+        value: "100"
+      - name: TARGET_CONTAINER
+        value: ""
+      - name: CONTAINER_RUNTIME
+        value: "containerd"
+      - name: SOCKET_PATH
+        value: "/run/containerd/containerd.sock"
+      - name: RAMP_TIME
+        value: "0"
+      - name: LIB_IMAGE
+        value: "litmuschaos/go-runner:3.0.0"

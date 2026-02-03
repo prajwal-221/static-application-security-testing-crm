@@ -203,7 +203,7 @@ pipeline {
       steps {
         sh '''
           echo "Starting Frontend Pod Deletion Test..."
-          kubectl apply -f chaos/engines/pod-delete-engine.yaml
+          kubectl apply -f chaos/engines/frontend-pod-delete-engine.yaml
           sleep 90
           kubectl delete chaosengine pod-delete-chaos -n litmus --ignore-not-found
         '''
@@ -214,7 +214,7 @@ pipeline {
       steps {
         sh '''
           echo "Starting Frontend Network Latency Test..."
-          kubectl apply -f chaos/engines/network-chaos-engine.yaml
+          kubectl apply -f chaos/engines/frontend-network-chaos-engine.yaml
           sleep 120
           kubectl delete chaosengine network-latency-chaos -n litmus --ignore-not-found
         '''
@@ -225,7 +225,7 @@ pipeline {
       steps {
         sh '''
           echo "Starting Frontend CPU Stress Test..."
-          kubectl apply -f chaos/engines/cpu-chaos-engine.yaml
+          kubectl apply -f chaos/engines/frontend-cpu-chaos-engine.yaml
           sleep 120
           kubectl delete chaosengine cpu-hog-chaos -n litmus --ignore-not-found
         '''
@@ -236,7 +236,7 @@ pipeline {
       steps {
         sh '''
           echo "Starting Frontend Memory Stress Test..."
-          kubectl apply -f chaos/engines/memory-chaos-engine.yaml
+          kubectl apply -f chaos/engines/frontend-memory-chaos-engine.yaml
           sleep 120
           kubectl delete chaosengine memory-hog-chaos -n litmus --ignore-not-found
         '''
@@ -283,6 +283,36 @@ pipeline {
           kubectl apply -f chaos/engines/backend-memory-chaos-engine.yaml
           sleep 120
           kubectl delete chaosengine backend-memory-hog-chaos -n litmus --ignore-not-found
+        '''
+      }
+    }
+
+    stage('Chaos Results Observation') {
+      steps {
+        sh '''
+          echo "=================================================="
+          echo " CHAOS RESULTS SUMMARY (litmus namespace)"
+          echo "=================================================="
+
+          kubectl get chaosresults -n litmus || true
+
+          echo ""
+          echo "=================================================="
+          echo " DETAILED CHAOS RESULTS"
+          echo "=================================================="
+
+          for cr in $(kubectl get chaosresults -n litmus -o jsonpath='{.items[*].metadata.name}' 2>/dev/null); do
+            echo ""
+            echo "--------------------------------------------------"
+            echo " ChaosResult: $cr"
+            echo "--------------------------------------------------"
+            kubectl describe chaosresult "$cr" -n litmus || true
+          done
+
+          echo ""
+          echo "=================================================="
+          echo " CHAOS OBSERVATION STAGE COMPLETED"
+          echo "=================================================="
         '''
       }
     }
