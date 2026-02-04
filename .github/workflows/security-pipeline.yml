@@ -44,7 +44,21 @@ jobs:
             --report-path /repo/$SEC_REPORTS_DIR/gitleaks.json || true
 
       ############################################################
-      # Dependency Scan — Trivy FS (FIXED)
+      # SECRET DETECTION GATE (HARD FAIL)
+      # Tool: Gitleaks
+      # Condition: Any secret detected → FAIL
+      ############################################################
+      # - name: Enforce Secret Gate
+      #   run: |
+      #     if jq -e '. | length > 0' $SEC_REPORTS_DIR/gitleaks.json; then
+      #       echo "❌ Secrets detected — blocking pipeline"
+      #       exit 1
+      #     fi
+
+
+
+      ############################################################
+      # Dependency Scan — Trivy FS
       ############################################################
       - name: Dependency Scan — Trivy FS
         run: |
@@ -58,6 +72,16 @@ jobs:
             --ignore-unfixed \
             --format json \
             -o /scan/$SEC_REPORTS_DIR/trivy-fs.json || true
+
+      ############################################################
+      # SCA DEPENDENCY GATE
+      ############################################################
+      # - name: Enforce SCA Gate
+      #   run: |
+      #     if jq -e '.Results[].Vulnerabilities[] | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
+      #       $SEC_REPORTS_DIR/trivy-fs.json; then
+      #       exit 1
+      #     fi            
 
       ############################################################
       # Verify Reports Generated (Best Practice)
@@ -115,6 +139,16 @@ jobs:
             --json \
             --output security-reports/semgrep/semgrep.json \
             . || true
+
+      ############################################################
+      # SAST GATE
+      ############################################################
+      # - name: Enforce SAST Gate
+      #   run: |
+      #     if jq -e '.results[] | select(.extra.severity=="HIGH" or .extra.severity=="CRITICAL")' \
+      #       security-reports/semgrep/semgrep.json; then
+      #       exit 1
+      #     fi
 
       ############################################################
       # Upload SAST Report Artifact
@@ -251,6 +285,17 @@ jobs:
           exit 1
 
       ############################################################
+      # IMAGE GATE
+      ############################################################
+      # - name: Enforce Image Gate
+      #   run: |
+      #     if jq -e '.Results[].Vulnerabilities[] | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
+      #       $SEC_REPORTS_DIR/trivy-image-backend.json; then
+      #       exit 1
+      #     fi
+
+
+      ############################################################
       # Runtime Scan — Trivy
       ############################################################
       - name: Runtime Scan — Trivy
@@ -272,6 +317,18 @@ jobs:
             -o /out/$SEC_REPORTS_DIR/trivy-runtime-frontend.json || true
 
       ############################################################
+      # RUNTIME GATE
+      ############################################################
+      # - name: Enforce Runtime Gate
+      #   run: |
+      #     if jq -e '.Results[].Misconfigurations[] | select(.Severity=="CRITICAL")' \
+      #       $SEC_REPORTS_DIR/trivy-runtime-backend.json; then
+      #       exit 1
+      #     fi
+
+
+
+      ############################################################
       # DAST — OWASP ZAP Baseline (DefectDojo Compatible)
       ############################################################
       - name: OWASP ZAP Baseline
@@ -291,6 +348,11 @@ jobs:
             -r zap-baseline.html \
             -x zap-baseline.xml || true
 
+      # Zap Baseline Advisory Gate
+      # - name: Zap Baseline Advisory Gate
+      #   run: echo "ZAP baseline findings logged (non-blocking)"
+
+
       ############################################################
       # ZAP Active DAST — DefectDojo Compatible
       ############################################################
@@ -308,6 +370,12 @@ jobs:
             -t http://idurar-backend:4000 \
             -r zap-active.html \
             -x zap-active.xml || true
+
+      # ZAP ACTIVE Scan Gate
+      # - name: Enforce ZAP Active Gate
+      #   run: |
+      #     grep -q "<riskdesc>High" security-reports/zap-active/zap-active.xml && exit 1
+
 
       ############################################################
       # ZAP Authenticated DAST — DefectDojo Compatible
@@ -332,6 +400,10 @@ jobs:
             -r zap-auth.html \
             -x zap-auth.xml || true
 
+      # ZAP Authenticated Scan Gate
+      # - name: Enforce ZAP Auth Gate
+      #   run: |
+      #     grep -q "<riskdesc>High" security-reports/zap-auth/zap-auth.xml && exit 1
 
       ############################################################
       # Upload Reports
@@ -961,10 +1033,10 @@ jobs:
 
 
 ############################################################
-# STAGE 12 — DefectDojo Enterprise Intelligence Upload (DEMO SAFE)
+# STAGE 12 — DefectDojo Enterprise Upload 
 ############################################################
   defectdojo_enterprise_intelligence:
-    name: DefectDojo Enterprise Intelligence Upload
+    name: DefectDojo Enterprise Report Upload
     runs-on: ubuntu-latest
     needs: final_security_report
     continue-on-error: true
