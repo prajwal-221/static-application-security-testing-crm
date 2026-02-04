@@ -21,22 +21,41 @@ spec:
         components:
           runner:
             env:
+              # Delete pods one-by-one, not in parallel
               - name: SEQUENCE
                 value: "serial"
+
           env:
+            # Total chaos execution time
             - name: TOTAL_CHAOS_DURATION
               value: "90"
+
+            # Interval between pod deletions
             - name: CHAOS_INTERVAL
               value: "15"
+
+            # Kill only 1 pod per iteration (safe for CI)
             - name: PODS_AFFECTED_PERC
-              value: "100"
+              value: "25"
+
+            # Allow chaos even if replicas briefly drop
+            - name: FORCE
+              value: "true"
+
+            # Explicitly target the frontend container
             - name: TARGET_CONTAINER
-              value: ""
+              value: "frontend"
+
+            # Required for containerd clusters
             - name: CONTAINER_RUNTIME
               value: "containerd"
             - name: SOCKET_PATH
               value: "/run/containerd/containerd.sock"
+
+            # Give the system time to stabilize before chaos
             - name: RAMP_TIME
-              value: "0"
+              value: "30"
+
+            # Litmus runner image
             - name: LIB_IMAGE
               value: "litmuschaos/go-runner:3.0.0"
