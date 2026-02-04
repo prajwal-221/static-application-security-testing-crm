@@ -210,39 +210,6 @@ pipeline {
       }
     }
 
-    stage('Chaos Test - Frontend Network Latency') {
-      steps {
-        sh '''
-          echo "Starting Frontend Network Latency Test..."
-          kubectl apply -f chaos/engines/frontend-network-chaos-engine.yaml
-          sleep 120
-          kubectl delete chaosengine network-latency-chaos -n litmus --ignore-not-found
-        '''
-      }
-    }
-
-    stage('Chaos Test - Frontend CPU Stress') {
-      steps {
-        sh '''
-          echo "Starting Frontend CPU Stress Test..."
-          kubectl apply -f chaos/engines/frontend-cpu-chaos-engine.yaml
-          sleep 120
-          kubectl delete chaosengine cpu-hog-chaos -n litmus --ignore-not-found
-        '''
-      }
-    }
-
-    stage('Chaos Test - Frontend Memory Stress') {
-      steps {
-        sh '''
-          echo "Starting Frontend Memory Stress Test..."
-          kubectl apply -f chaos/engines/frontend-memory-chaos-engine.yaml
-          sleep 120
-          kubectl delete chaosengine memory-hog-chaos -n litmus --ignore-not-found
-        '''
-      }
-    }
-
     stage('Chaos Test - Backend Pod Deletion') {
       steps {
         sh '''
@@ -250,39 +217,6 @@ pipeline {
           kubectl apply -f chaos/engines/backend-pod-delete-engine.yaml
           sleep 90
           kubectl delete chaosengine backend-pod-delete-chaos -n litmus --ignore-not-found
-        '''
-      }
-    }
-
-    stage('Chaos Test - Backend CPU Stress') {
-      steps {
-        sh '''
-          echo "Starting Backend CPU Stress Test..."
-          kubectl apply -f chaos/engines/backend-cpu-chaos-engine.yaml
-          sleep 120
-          kubectl delete chaosengine backend-cpu-hog-chaos -n litmus --ignore-not-found
-        '''
-      }
-    }
-
-    stage('Chaos Test - Backend Network Latency') {
-      steps {
-        sh '''
-          echo "Starting Backend Network Latency Test..."
-          kubectl apply -f chaos/engines/backend-network-chaos-engine.yaml
-          sleep 120
-          kubectl delete chaosengine backend-network-latency-chaos -n litmus --ignore-not-found
-        '''
-      }
-    }
-
-    stage('Chaos Test - Backend Memory Stress') {
-      steps {
-        sh '''
-          echo "Starting Backend Memory Stress Test..."
-          kubectl apply -f chaos/engines/backend-memory-chaos-engine.yaml
-          sleep 120
-          kubectl delete chaosengine backend-memory-hog-chaos -n litmus --ignore-not-found
         '''
       }
     }
