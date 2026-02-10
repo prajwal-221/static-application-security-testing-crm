@@ -237,6 +237,7 @@ jobs:
             --format json \
             -o /out/$SEC_REPORTS_DIR/trivy-image-frontend.json || true
 
+
       ############################################################
       # Deploy Stack
       ############################################################
