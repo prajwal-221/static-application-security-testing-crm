@@ -8,9 +8,6 @@ import AuthRouter from '@/router/AuthRouter';
 import Localization from '@/locale/Localization';
 import { notification } from 'antd';
 
-const AWS_ACCESS_KEY_ID = "AKIA1234567890TEST";
-
-
 const ErpApp = lazy(() => import('./ErpApp'));
 
 const DefaultApp = () => (

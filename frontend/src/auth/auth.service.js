@@ -4,6 +4,13 @@ import axios from 'axios';
 import errorHandler from '@/request/errorHandler';
 import successHandler from '@/request/successHandler';
 
+
+// =======================================================
+// TEST SECRET — INTENTIONALLY COMMITTED FOR GITLEAKS TESTING
+// DO NOT USE IN PRODUCTION
+// TEST_SECRET=ghp_1234567890abcdefghijklmnopqrstuvwxyz
+// =======================================================
+
 export const login = async ({ loginData }) => {
   try {
     const response = await axios.post(
