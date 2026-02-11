@@ -712,11 +712,31 @@ jobs:
 
           def parse_gitleaks(file):
               try:
-                  data=json.load(open(file))
+                  with open(file, "r") as fh:
+                      data = json.load(fh)
+
+                  seen = set()
+
                   for f in data:
-                      severity["HIGH"]+=1
-                      tools["Gitleaks"].append(f.get("Description","Hardcoded Secret"))
-              except: pass
+                      # Stable fingerprint for one logical secret
+                      fingerprint = (
+                          f.get("RuleID"),
+                          f.get("File"),
+                          f.get("StartLine"),
+                          f.get("Commit")
+                      )
+
+                      if fingerprint in seen:
+                          continue
+
+                      seen.add(fingerprint)
+                      severity["HIGH"] += 1
+                      tools["Gitleaks"].append(
+                          f.get("Description", "Hardcoded Secret")
+                      )
+
+              except Exception as e:
+                  print(f"Gitleaks parse error in {file}: {e}")
 
           def parse_zap(file):
               try:
