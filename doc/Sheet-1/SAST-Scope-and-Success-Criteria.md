@@ -187,7 +187,7 @@ This scope and criteria are designed around the following principles:
 | Scan scope defined | ✅ |
 | Severity model defined | ✅ |
 | Pass / Fail rules defined | ✅ |
-| GitLab CI compatibility | ✅ |
+| Github action compatibility | ✅ |
 | MERN stack aligned | ✅ |
 
 ---
