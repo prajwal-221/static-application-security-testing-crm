@@ -1,0 +1,23 @@
+name: Snyk Secrets Scan
+
+on:
+  push:
+    branches: [ staging ]
+  pull_request:
+
+jobs:
+  snyk-secrets:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  
+
+      - name: Run Snyk Secrets Scan
+        uses: snyk/actions@master
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
+        with:
+          command: secrets
