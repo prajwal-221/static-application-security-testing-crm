@@ -27,12 +27,12 @@ jobs:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Run Snyk Secrets Scan
-        run: snyk secrets scan
+        run: snyk secrets
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
       - name: Run Snyk Secrets Scan (JSON)
-        run: snyk secrets scan --json > snyk-secrets.json
+        run: snyk secrets --json > snyk-secrets.json
         env:
           SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
 
