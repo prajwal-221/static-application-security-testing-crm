@@ -1,0 +1,69 @@
+title = "Gitleaks configuration"
+
+[extend]
+useDefault = true
+
+[[rules]]
+description = "AWS Access Key ID"
+id = "aws-access-key-id"
+regex = '''(?i)(?:aws_access_key_id|aws_access_key|aws_secret_access_key)[\s=]+["']?([A-Z0-9]{20})["']?'''
+secretGroup = 1
+keywords = ["aws_access_key_id", "aws_access_key", "aws_secret_access_key"]
+
+[[rules]]
+description = "AWS Secret Access Key"
+id = "aws-secret-access-key"
+regex = '''(?i)(?:aws_secret_access_key|aws_secret_key)[\s=]+["']?([A-Za-z0-9/+=]{40})["']?'''
+secretGroup = 1
+keywords = ["aws_secret_access_key", "aws_secret_key"]
+
+[[rules]]
+description = "Generic API Key"
+id = "generic-api-key"
+regex = '''(?i)(?:api[_-]?key|apikey|secret[_-]?key|access[_-]?key)[\s=]+["']?([a-zA-Z0-9_\-]{16,})["']?'''
+secretGroup = 1
+keywords = ["api_key", "apikey", "secret_key", "access_key"]
+
+[[rules]]
+description = "Private Key"
+id = "private-key"
+regex = '''-----BEGIN (?:RSA |OPENSSH |DSA |EC |PGP )?PRIVATE KEY-----'''
+keywords = ["-----BEGIN"]
+
+[[rules]]
+description = "GitHub Token"
+id = "github-token"
+regex = '''ghp_[a-zA-Z0-9]{36}'''
+keywords = ["ghp_"]
+
+[[rules]]
+description = "GitHub App Token"
+id = "github-app-token"
+regex = '''(ghu|ghs|ghr)_[a-zA-Z0-9]{36}'''
+keywords = ["ghu_", "ghs_", "ghr_"]
+
+[[rules]]
+description = "Slack Token"
+id = "slack-token"
+regex = '''xox[baprs]-[a-zA-Z0-9-]+'''
+keywords = ["xoxb", "xoxa", "xoxp", "xoxr", "xoxs"]
+
+[[rules]]
+description = "Database Connection String"
+id = "database-connection-string"
+regex = '''(?i)(?:mongodb|mysql|postgres|postgresql)://[^\s/$.?#].[^\s]*'''
+keywords = ["mongodb://", "mysql://", "postgres://", "postgresql://"]
+
+[allowlist]
+description = "Global Allowlist"
+paths = [
+    '''node_modules''',
+    '''\.git''',
+    '''dist''',
+    '''build''',
+    '''coverage''',
+    '''\.vscode''',
+    '''\.idea''',
+    '''package-lock\.json''',
+    '''yarn\.lock'''
+]

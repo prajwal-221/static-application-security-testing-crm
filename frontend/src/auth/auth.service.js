@@ -5,11 +5,10 @@ import errorHandler from '@/request/errorHandler';
 import successHandler from '@/request/successHandler';
 
 
-// =======================================================
-// TEST SECRET — INTENTIONALLY COMMITTED FOR GITLEAKS TESTING
-// DO NOT USE IN PRODUCTION
-// TEST_SECRET=ghp_1234567890abcdefghijklmnopqrstuvwxyz
-// =======================================================
+// TEST_AWS_ACCESS_KEY_ID=AKIAIOSFODNN7EXAMPLE
+// TEST_AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+
+
 
 export const login = async ({ loginData }) => {
   try {
