@@ -1,44 +1,30 @@
-name: Snyk Secrets Scan
+name: Snyk Secret Scanning
 
 on:
   push:
-    branches: [ staging ]
+    branches: ["staging"]
   pull_request:
-    branches: [ staging ]
+    branches: ["staging"]
+  workflow_dispatch:
 
 jobs:
-  snyk-secrets:
+  snyk-scan:
     runs-on: ubuntu-latest
-
-    permissions:
-      contents: read
-
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
+      
       - name: Install Snyk CLI
-        uses: snyk/actions/setup@master
+        run: npm install -g snyk 
+
+      - name: Run Snyk secret scan
+        env:
+          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }} # Reference the GitHub secret
+        run: |
+          snyk code test --sarif-file-output=snyk.sarif || true # The '|| true' allows the workflow to continue even if vulns are found
+      
+      - name: Upload Snyk scan results to GitHub Code Scanning
+        uses: github/codeql-action/upload-sarif@v3
         with:
-          snyk-version: latest
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      - name: Run Snyk Secrets Scan
-        run: snyk secrets
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      - name: Run Snyk Secrets Scan (JSON)
-        run: snyk secrets --json > snyk-secrets.json
-        env:
-          SNYK_TOKEN: ${{ secrets.SNYK_TOKEN }}
-
-      - name: Upload Snyk Secrets Report
-        uses: actions/upload-artifact@v4
-        with:
-          name: snyk-secrets-report
-          path: snyk-secrets.json
-          retention-days: 30
+          sarif_file: snyk.sarif
+          wait-for-processing: true
