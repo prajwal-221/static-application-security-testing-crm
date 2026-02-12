@@ -15,6 +15,7 @@ services:
       - "27017:27017"
     networks:
       - idurar-network
+    command: ["mongod", "--bind_ip_all"]
 
   backend:
     image: idurar-backend:latest

@@ -41,28 +41,34 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
+              # Ensure reports directory exists with correct permissions
+              mkdir -p "$(pwd)/security-reports"
+              chmod -R 0777 "$(pwd)/security-reports"
+
               docker run --rm \
-                -v "$PWD:/repo" \
-                zricethezav/gitleaks:latest \
-                detect --source=/repo \
-                --report-format json \
-                --report-path /repo/${SEC_REPORTS_DIR}/gitleaks.json || true
+                -v "$(pwd):/repo" \
+                -v "$(pwd)/security-reports:/repo/security-reports" \
+                zricethezav/gitleaks:latest detect \
+                  --source=/repo \
+                  --report-format json \
+                  --report-path /repo/security-reports/gitleaks.json || true
             '''
 
             // Dependency Scan — Trivy FS
             sh '''
               #!/bin/bash
               set -e
-              mkdir -p ${SEC_REPORTS_DIR}
+              mkdir -p "$(pwd)/security-reports"
+              chmod -R 0777 "$(pwd)/security-reports"
 
               docker run --rm \
-                -v "$PWD:/scan" \
-                aquasec/trivy:latest \
-                fs /scan \
-                --severity HIGH,CRITICAL \
-                --ignore-unfixed \
-                --format json \
-                -o /scan/${SEC_REPORTS_DIR}/trivy-fs.json || true
+                -v "$(pwd):/scan" \
+                -v "$(pwd)/security-reports:/scan/security-reports" \
+                aquasec/trivy:latest fs /scan \
+                  --severity HIGH,CRITICAL \
+                  --ignore-unfixed \
+                  --format json \
+                  -o /scan/security-reports/trivy-fs.json || true
             '''
 
             // Verify Reports Generated
@@ -198,27 +204,36 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              mkdir -p ${SEC_REPORTS_DIR}
+              mkdir -p "$(pwd)/security-reports"
+              chmod -R 0777 "$(pwd)/security-reports"
 
               docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
-                -v "$PWD:/out" \
-                aquasec/trivy:latest \
-                image idurar-backend:latest \
-                --severity HIGH,CRITICAL \
-                --ignore-unfixed \
-                --format json \
-                -o /out/${SEC_REPORTS_DIR}/trivy-image-backend.json || true
+                -v "$(pwd):/out" \
+                -v "$(pwd)/security-reports:/out/security-reports" \
+                aquasec/trivy:latest image idurar-backend:latest \
+                  --severity HIGH,CRITICAL \
+                  --ignore-unfixed \
+                  --format json \
+                  -o /out/security-reports/trivy-image-backend.json || true
 
               docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
-                -v "$PWD:/out" \
-                aquasec/trivy:latest \
-                image idurar-frontend:latest \
-                --severity HIGH,CRITICAL \
-                --ignore-unfixed \
-                --format json \
-                -o /out/${SEC_REPORTS_DIR}/trivy-image-frontend.json || true
+                -v "$(pwd):/out" \
+                -v "$(pwd)/security-reports:/out/security-reports" \
+                aquasec/trivy:latest image idurar-frontend:latest \
+                  --severity HIGH,CRITICAL \
+                  --ignore-unfixed \
+                  --format json \
+                  -o /out/security-reports/trivy-image-frontend.json || true
+            '''
+
+            // Clean up unused networks
+            sh '''
+              #!/bin/bash
+              set -e
+              echo "Cleaning up unused Docker networks..."
+              docker network prune -f || true
             '''
 
             // Deploy Stack
