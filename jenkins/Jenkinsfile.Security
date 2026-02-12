@@ -42,16 +42,16 @@ pipeline {
               #!/bin/bash
               set -e
               # Ensure reports directory exists with correct permissions
-              mkdir -p "$(pwd)/security-reports"
-              chmod -R 0777 "$(pwd)/security-reports"
+              mkdir -p security-reports
+              chmod -R 0777 security-reports
 
               docker run --rm \
                 -v "$(pwd):/repo" \
-                -v "$(pwd)/security-reports:/repo/security-reports" \
+                -w /repo \
                 zricethezav/gitleaks:latest detect \
-                  --source=/repo \
+                  --source=. \
                   --report-format json \
-                  --report-path /repo/security-reports/gitleaks.json || true
+                  --report-path security-reports/gitleaks.json || true
             '''
 
             // Dependency Scan — Trivy FS
@@ -193,11 +193,11 @@ pipeline {
               sed 's/=.*$/=****/' .env || true
             '''
 
-            // Docker Build (uses docker-compose build)
+            // Docker Build (uses docker compose build)
             sh '''
               #!/bin/bash
               set -e
-              docker-compose --env-file .env build
+              docker compose --env-file .env build
             '''
 
             // Trivy Docker Image Scan (backend & frontend)
@@ -228,19 +228,11 @@ pipeline {
                   -o /out/security-reports/trivy-image-frontend.json || true
             '''
 
-            // Clean up unused networks
-            sh '''
-              #!/bin/bash
-              set -e
-              echo "Cleaning up unused Docker networks..."
-              docker network prune -f || true
-            '''
-
             // Deploy Stack
             sh '''
               #!/bin/bash
               set -e
-              docker-compose --env-file .env up -d
+              docker compose --env-file .env up -d
             '''
 
             // Startup Diagnostics
@@ -250,8 +242,8 @@ pipeline {
               echo "===== Docker Containers ====="
               docker ps -a || true
               echo ""
-              echo "===== docker-compose Services ====="
-              docker-compose ps || true
+              echo "===== docker compose Services ====="
+              docker compose ps || true
             '''
 
             sh '''
@@ -375,7 +367,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker-compose --env-file .env down -v --remove-orphans || true
+              docker compose --env-file .env down -v --remove-orphans || true
             '''
           } // catchError
         } // script
@@ -1056,7 +1048,7 @@ pipeline {
         sh '''
           #!/bin/bash
           set -e
-          docker-compose --env-file .env down -v --remove-orphans || true
+          docker compose --env-file .env down -v --remove-orphans || true
         '''
       }
       // publish artifacts again to ensure they are available

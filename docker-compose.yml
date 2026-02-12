@@ -8,6 +8,7 @@ services:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: admin
+    command: ["mongod", "--bind_ip_all"]
     volumes:
       - mongodb_data:/data/db
       - ./mongodb/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
@@ -15,7 +16,7 @@ services:
       - "27017:27017"
     networks:
       - idurar-network
-    command: ["mongod", "--bind_ip_all"]
+    
 
   backend:
     image: idurar-backend:latest
