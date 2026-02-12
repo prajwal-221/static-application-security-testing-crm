@@ -1,5 +1,5 @@
 pipeline {
-  agent { label 'linux' }                     // adjust label to your Jenkins agent(s)
+  agent any
   environment {
     APP_ENV = 'staging'
     SEC_REPORTS_DIR = 'security-reports'
