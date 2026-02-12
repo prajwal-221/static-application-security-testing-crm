@@ -53,7 +53,7 @@ pipeline {
               # Run gitleaks with filesystem scan (no git history required)
               # This approach scans files directly without needing git history
               docker run --rm \
-                -v $(pwd):/repo \
+                -v "$WORKSPACE":/repo \
                 -w /repo \
                 zricethezav/gitleaks:latest detect \
                   --source=. \
