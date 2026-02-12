@@ -170,9 +170,9 @@ pipeline {
               sed 's/=.*$/=****/' .env || true
             '''
 
-            // Docker Build (uses docker compose build)
+            // Docker Build (uses docker-compose build)
             sh '''
-              docker compose --env-file .env build
+              docker-compose --env-file .env build
             '''
 
             // Trivy Docker Image Scan (backend & frontend)
@@ -202,7 +202,7 @@ pipeline {
 
             // Deploy Stack
             sh '''
-              docker compose --env-file .env up -d
+              docker-compose --env-file .env up -d
             '''
 
             // Startup Diagnostics
@@ -210,8 +210,8 @@ pipeline {
               echo "===== Docker Containers ====="
               docker ps -a || true
               echo ""
-              echo "===== Docker Compose Services ====="
-              docker compose ps || true
+              echo "===== docker-compose Services ====="
+              docker-compose ps || true
             '''
 
             sh '''
@@ -322,7 +322,7 @@ pipeline {
             // Cleanup (will run as part of stage always in original pipeline; emulate here)
             // Use try/finally for guaranteed cleanup
             sh '''
-              docker compose --env-file .env down -v --remove-orphans || true
+              docker-compose --env-file .env down -v --remove-orphans || true
             '''
           } // catchError
         } // script
@@ -975,7 +975,7 @@ pipeline {
     always {
       script {
         // Make sure any running compose is shutdown for cleanliness
-        sh 'docker compose --env-file .env down -v --remove-orphans || true'
+        sh 'docker-compose --env-file .env down -v --remove-orphans || true'
       }
       // publish artifacts again to ensure they are available
       archiveArtifacts artifacts: 'final-report/**', allowEmptyArchive: true
