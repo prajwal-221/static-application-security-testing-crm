@@ -50,14 +50,15 @@ pipeline {
               mkdir -p security-reports
               chmod -R 0777 security-reports
 
-              # Run gitleaks with filesystem scan (no git history required)
-              # This approach scans files directly without needing git history
+              # Run gitleaks with filesystem scan
+              # Mount both workspace and config file explicitly
               docker run --rm \
                 -v "$WORKSPACE":/repo \
+                -v "$WORKSPACE/.gitleaks.toml":/config/.gitleaks.toml \
                 -w /repo \
                 zricethezav/gitleaks:latest detect \
                   --source=. \
-                  --config=/repo/.gitleaks.toml \
+                  --config=/config/.gitleaks.toml \
                   --report-format json \
                   --report-path security-reports/gitleaks.json \
                   --verbose || true
@@ -202,11 +203,11 @@ pipeline {
               sed 's/=.*$/=****/' .env || true
             '''
 
-            // Docker Build (uses docker-composebuild)
+            // Docker Build (uses docker compose build)
             sh '''
               #!/bin/bash
               set -e
-              docker-compose--env-file .env build
+              docker compose --env-file .env build
             '''
 
             // Trivy Docker Image Scan (backend & frontend)
@@ -241,7 +242,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker-compose--env-file .env up -d
+              docker compose --env-file .env up -d
             '''
 
             // Startup Diagnostics
@@ -251,8 +252,8 @@ pipeline {
               echo "===== Docker Containers ====="
               docker ps -a || true
               echo ""
-              echo "===== docker-composeServices ====="
-              docker-composeps || true
+              echo "===== docker compose Services ====="
+              docker compose ps || true
             '''
 
             sh '''
@@ -376,7 +377,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker-compose--env-file .env down -v --remove-orphans || true
+              docker compose --env-file .env down -v --remove-orphans || true
             '''
           } // catchError
         } // script
@@ -1057,7 +1058,7 @@ pipeline {
         sh '''
           #!/bin/bash
           set -e
-          docker-compose--env-file .env down -v --remove-orphans || true
+          docker-compose --env-file .env down -v --remove-orphans || true
         '''
       }
       // publish artifacts again to ensure they are available
