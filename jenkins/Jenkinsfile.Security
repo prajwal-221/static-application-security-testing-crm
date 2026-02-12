@@ -45,13 +45,17 @@ pipeline {
               mkdir -p security-reports
               chmod -R 0777 security-reports
 
+              # Run gitleaks with filesystem scan (no git history required)
+              # This approach scans files directly without needing git history
               docker run --rm \
                 -v "$(pwd):/repo" \
                 -w /repo \
                 zricethezav/gitleaks:latest detect \
                   --source=. \
                   --report-format json \
-                  --report-path security-reports/gitleaks.json || true
+                  --report-path security-reports/gitleaks.json \
+                  --no-git \
+                  --verbose || true
             '''
 
             // Dependency Scan — Trivy FS

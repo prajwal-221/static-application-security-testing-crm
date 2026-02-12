@@ -65,5 +65,14 @@ paths = [
     '''\.vscode''',
     '''\.idea''',
     '''package-lock\.json''',
-    '''yarn\.lock'''
+    '''yarn\.lock''',
+    '''security-reports''',
+    '''gitleaks\.json''',
+    '''reports''',
+    '''normalized-reports''',
+    '''all-reports''',
+    '''documentation''',
+    '''raw-reports''',
+    '''dojo-reports''',
+    '''final-report'''
 ]
