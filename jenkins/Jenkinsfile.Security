@@ -34,7 +34,9 @@ pipeline {
           // Make this stage non-fatal to mimic continue-on-error: true
           catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
             // Prepare Reports Directory
-            sh "mkdir -p ${env.SEC_REPORTS_DIR}"
+            sh '''
+              mkdir -p '${env.SEC_REPORTS_DIR}'
+            '''
 
             // Secret Scan — Gitleaks
             sh '''
@@ -164,10 +166,15 @@ pipeline {
             }
 
             // Debug — Verify .env Injection (Safe)
-            sh "echo '===== .env Keys Loaded =====' && sed 's/=.*$/=****/' .env || true"
+            sh '''
+              echo "===== .env Keys Loaded ====="
+              sed 's/=.*$/=****/' .env || true
+            '''
 
             // Docker Build (uses docker compose build)
-            sh "docker compose --env-file .env build"
+            sh '''
+              docker compose --env-file .env build
+            '''
 
             // Trivy Docker Image Scan (backend & frontend)
             sh '''
@@ -195,7 +202,9 @@ pipeline {
             '''
 
             // Deploy Stack
-            sh "docker compose --env-file .env up -d"
+            sh '''
+              docker compose --env-file .env up -d
+            '''
 
             // Startup Diagnostics
             sh '''
@@ -206,9 +215,11 @@ pipeline {
               docker compose ps || true
             '''
 
-            sh "docker logs idurar-mongodb --tail=200 || true"
-            sh "docker logs idurar-backend --tail=200 || true"
-            sh "docker logs idurar-frontend --tail=200 || true"
+            sh '''
+              docker logs idurar-mongodb --tail=200 || true
+              docker logs idurar-backend --tail=200 || true
+              docker logs idurar-frontend --tail=200 || true
+            '''
 
             // Backend Health Check
             sh '''
@@ -311,7 +322,9 @@ pipeline {
 
             // Cleanup (will run as part of stage always in original pipeline; emulate here)
             // Use try/finally for guaranteed cleanup
-            sh "docker compose --env-file .env down -v --remove-orphans || true"
+            sh '''
+              docker compose --env-file .env down -v --remove-orphans || true
+            '''
           } // catchError
         } // script
       } // steps
@@ -327,7 +340,9 @@ pipeline {
           catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
             // Unstash artifacts produced earlier
             // Create a reports directory and copy stashed artifacts if any
-            sh "mkdir -p reports || true"
+            sh '''
+              mkdir -p reports || true
+            '''
 
             // Unstash known artifacts if present
             // Wrap in try to avoid failing if nothing was stashed
@@ -390,11 +405,14 @@ pipeline {
             // Download Raw Reports -> they are in reports/ ; copy to raw-reports for parity
             sh '''
               mkdir -p raw-reports
-              cp -r reports raw-reports || true
+              cp -r reports raw-reports 2>/dev/null || true
             '''
 
             // Setup Python & run normalize script
             sh '''
+              #!/bin/bash
+              set -e
+              
               if command -v python3 >/dev/null 2>&1; then
                 PY=python3
               elif command -v python >/dev/null 2>&1; then
@@ -582,7 +600,9 @@ pipeline {
         script {
           catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
             // Download All Pipeline Artifacts: unstash previously stashed artifacts into all-reports
-            sh "mkdir -p all-reports || true"
+            sh '''
+              mkdir -p all-reports || true
+            '''
 
             // Try unstashing known bundles
             try { unstash 'secrets-and-sca-reports' } catch (e) { echo "ok" }
