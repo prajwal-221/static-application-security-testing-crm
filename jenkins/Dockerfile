@@ -106,6 +106,21 @@ RUN curl -L https://github.com/mikefarah/yq/releases/download/v4.44.1/yq_linux_a
     -o /usr/local/bin/yq && \
     chmod +x /usr/local/bin/yq
 
+# ===============================
+# Docker CLI (required for docker run / compose)
+# ===============================
+RUN apt-get update && apt-get install -y \
+    docker.io \
+    && rm -rf /var/lib/apt/lists/*
+
+# ===============================
+# Docker Compose (Standalone v2)
+# ===============================
+RUN curl -L https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 \
+    -o /usr/local/bin/docker-compose && \
+    chmod +x /usr/local/bin/docker-compose
+
+
 
 # ===============================
 # Permissions cleanup
