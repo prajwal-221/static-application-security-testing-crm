@@ -120,6 +120,12 @@ RUN curl -L https://github.com/docker/compose/releases/download/v2.27.0/docker-c
     -o /usr/local/bin/docker-compose && \
     chmod +x /usr/local/bin/docker-compose
 
+# ===============================
+# Docker socket permissions fix (dynamic)
+# ===============================
+RUN groupadd docker || true
+RUN usermod -aG docker jenkins
+
 
 
 # ===============================
