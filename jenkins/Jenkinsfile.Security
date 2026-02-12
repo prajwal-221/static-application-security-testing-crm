@@ -34,11 +34,13 @@ pipeline {
           catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
             // Prepare Reports Directory
             sh '''
-              mkdir -p '${env.SEC_REPORTS_DIR}'
+              mkdir -p "${SEC_REPORTS_DIR}"
             '''
 
             // Secret Scan — Gitleaks
             sh '''
+              #!/bin/bash
+              set -e
               docker run --rm \
                 -v "$PWD:/repo" \
                 zricethezav/gitleaks:latest \
@@ -49,6 +51,8 @@ pipeline {
 
             // Dependency Scan — Trivy FS
             sh '''
+              #!/bin/bash
+              set -e
               mkdir -p ${SEC_REPORTS_DIR}
 
               docker run --rm \
@@ -68,7 +72,7 @@ pipeline {
             '''
 
             // Stash reports (acts like upload-artifact)
-            stash name: 'secrets-and-sca-reports', includes: "${SEC_REPORTS_DIR}/**", allowEmpty: true
+            stash name: 'secrets-and-sca-reports', includes: "${env.SEC_REPORTS_DIR}/**", allowEmpty: true
           } // catchError
         } // script
       } // steps
@@ -85,26 +89,34 @@ pipeline {
             // Ensure checkout (keeps parity with original job)
             checkout scm
 
-            // Setup Python (install pip if needed & install semgrep)
+            // Setup Python venv and install Semgrep
             sh '''
-              // Attempt to use python3; install pip if missing (many agents have python3)
+              #!/bin/bash
+              set -e
               if command -v python3 >/dev/null 2>&1; then
                 PY=python3
               elif command -v python >/dev/null 2>&1; then
                 PY=python
               else
-                echo "python not found - please install python3 on the agent"
+                echo "python not found - please install python3 on the agent" >&2
                 exit 1
               fi
 
-              $PY -m pip install --upgrade pip
+              # create venv for semgrep
+              rm -rf .venv_semgrep
+              $PY -m venv .venv_semgrep
+              . .venv_semgrep/bin/activate
+              pip install --upgrade pip
               pip install semgrep
             '''
 
-            // Run Semgrep Scan
+            // Run Semgrep Scan (JSON Output for DefectDojo)
             sh '''
+              #!/bin/bash
+              set -e
+              . .venv_semgrep/bin/activate
               mkdir -p security-reports/semgrep
-              semgrep scan \
+              .venv_semgrep/bin/semgrep scan \
                 --config=auto \
                 --json \
                 --output security-reports/semgrep/semgrep.json \
@@ -133,6 +145,8 @@ pipeline {
             // Docker Login: uses Jenkins credentials (usernamePassword)
             withCredentials([usernamePassword(credentialsId: 'docker-hub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_TOKEN')]) {
               sh '''
+                #!/bin/bash
+                set -e
                 echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
               '''
             }
@@ -150,6 +164,7 @@ pipeline {
               string(credentialsId: 'JWT_TOKEN', variable: 'JWT_TOKEN')
             ]) {
               sh '''
+                #!/bin/bash
                 set -e
                 {
                   echo "MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}"
@@ -166,17 +181,23 @@ pipeline {
 
             // Debug — Verify .env Injection (Safe)
             sh '''
+              #!/bin/bash
+              set -e
               echo "===== .env Keys Loaded ====="
               sed 's/=.*$/=****/' .env || true
             '''
 
             // Docker Build (uses docker-compose build)
             sh '''
+              #!/bin/bash
+              set -e
               docker-compose --env-file .env build
             '''
 
             // Trivy Docker Image Scan (backend & frontend)
             sh '''
+              #!/bin/bash
+              set -e
               mkdir -p ${SEC_REPORTS_DIR}
 
               docker run --rm \
@@ -202,11 +223,15 @@ pipeline {
 
             // Deploy Stack
             sh '''
+              #!/bin/bash
+              set -e
               docker-compose --env-file .env up -d
             '''
 
             // Startup Diagnostics
             sh '''
+              #!/bin/bash
+              set -e
               echo "===== Docker Containers ====="
               docker ps -a || true
               echo ""
@@ -215,16 +240,20 @@ pipeline {
             '''
 
             sh '''
+              #!/bin/bash
+              set -e
               docker logs idurar-mongodb --tail=200 || true
               docker logs idurar-backend --tail=200 || true
               docker logs idurar-frontend --tail=200 || true
             '''
 
-            // Backend Health Check
+            // Backend Health Check (use bash range)
             sh '''
+              #!/bin/bash
+              set -e
               echo "Waiting for backend to become healthy..."
 
-              for i in {1..60}; do
+              for i in $(seq 1 60); do
                 if curl -sf http://localhost:4000/public/health; then
                   echo "Backend is healthy"
                   exit 0
@@ -241,6 +270,8 @@ pipeline {
 
             // Runtime Scan — Trivy
             sh '''
+              #!/bin/bash
+              set -e
               docker run --rm \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$PWD:/out" \
@@ -260,6 +291,8 @@ pipeline {
 
             // DAST — OWASP ZAP Baseline
             sh '''
+              #!/bin/bash
+              set -e
               mkdir -p security-reports/zap-baseline
               chmod 777 security-reports/zap-baseline
               
@@ -278,6 +311,8 @@ pipeline {
 
             // ZAP Active Scan (Live App) — note network uses compose project network
             sh '''
+              #!/bin/bash
+              set -e
               mkdir -p security-reports/zap-active
               chmod 777 security-reports/zap-active
 
@@ -296,6 +331,8 @@ pipeline {
             // JWT_TOKEN already bound earlier for .env; bind again specifically for this call
             withCredentials([string(credentialsId: 'JWT_TOKEN', variable: 'JWT_TOKEN')]) {
               sh '''
+                #!/bin/bash
+                set -e
                 mkdir -p security-reports/zap-auth
                 chmod 777 security-reports/zap-auth
 
@@ -320,8 +357,9 @@ pipeline {
             stash name: 'docker-security-reports', includes: 'security-reports/**', allowEmpty: true
 
             // Cleanup (will run as part of stage always in original pipeline; emulate here)
-            // Use try/finally for guaranteed cleanup
             sh '''
+              #!/bin/bash
+              set -e
               docker-compose --env-file .env down -v --remove-orphans || true
             '''
           } // catchError
@@ -357,8 +395,10 @@ pipeline {
 
             // Move any stashed data into reports/ (stashes were placed at repo root)
             sh '''
+              #!/bin/bash
+              set -e
               mkdir -p reports
-              // Find any files and copy (if stashes created files at workspace root)
+              # Find any files and copy (if stashes created files at workspace root)
               if [ -d "${SEC_REPORTS_DIR}" ]; then
                 cp -r ${SEC_REPORTS_DIR} reports/ || true
               fi
@@ -407,27 +447,33 @@ pipeline {
               cp -r reports raw-reports 2>/dev/null || true
             '''
 
-            // Setup Python & run normalize script
+            // Setup Python venv & run normalize script
             sh '''
               #!/bin/bash
               set -e
-              
+
               if command -v python3 >/dev/null 2>&1; then
                 PY=python3
               elif command -v python >/dev/null 2>&1; then
                 PY=python
               else
-                echo "python not found - please install python3 on the agent"
+                echo "python not found - please install python3 on the agent" >&2
                 exit 1
               fi
 
-              $PY -m pip install --upgrade pip
+              rm -rf .venv_normalize
+              $PY -m venv .venv_normalize
+              . .venv_normalize/bin/activate
+              pip install --upgrade pip
             '''
 
             // Run normalize script in repo (keeps original behavior)
             sh '''
+              #!/bin/bash
+              set -e
+              . .venv_normalize/bin/activate
               mkdir -p normalized-reports
-              python scripts/normalize_reports.py || true
+              .venv_normalize/bin/python scripts/normalize_reports.py || true
             '''
 
             stash name: 'normalized-reports', includes: 'normalized-reports/**', allowEmpty: true
@@ -463,6 +509,7 @@ pipeline {
               string(credentialsId: 'DOJO_ENGAGEMENT_ID', variable: 'DOJO_ENGAGEMENT_ID')
             ]) {
               sh '''
+                #!/bin/bash
                 set -e
 
                 upload() {
@@ -479,30 +526,30 @@ pipeline {
                     -F "close_old_findings=false"
                 }
 
-                // ===========================
-                // Semgrep (SAST)
-                // ===========================
+                # ===========================
+                # Semgrep (SAST)
+                # ===========================
                 find dojo-reports -type f -name "semgrep.json" | while read f; do
                   upload "Semgrep JSON Report" "$f"
                 done
 
-                // ===========================
-                // Trivy (SCA + Image + Runtime)
-                // ===========================
+                # ===========================
+                # Trivy (SCA + Image + Runtime)
+                # ===========================
                 find dojo-reports -type f -name "trivy-*.json" | while read f; do
                   upload "Trivy Scan" "$f"
                 done
 
-                // ===========================
-                // Gitleaks (Secrets)
-                // ===========================
+                # ===========================
+                # Gitleaks (Secrets)
+                # ===========================
                 find dojo-reports -type f -name "gitleaks.json" | while read f; do
                   upload "Gitleaks Scan" "$f"
                 done
 
-                // ===========================
-                // ZAP (DAST) — XML ONLY
-                // ===========================
+                # ===========================
+                # ZAP (DAST) — XML ONLY
+                # ===========================
                 find dojo-reports -type f -name "zap-*.xml" | while read f; do
                   upload "ZAP Scan" "$f"
                 done
@@ -522,13 +569,17 @@ pipeline {
         script {
           catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
             sh '''
+              #!/bin/bash
+              set -e
               docker run -d -p 8081:80 citizenstig/nowasp || true
             '''
 
             // Wait for Mutillidae to start
             sh '''
+              #!/bin/bash
+              set -e
               echo "Waiting for Mutillidae..."
-              for i in {1..30}; do
+              for i in $(seq 1 30); do
                 if curl -sf http://localhost:8081; then
                   echo "Mutillidae is ready"
                   exit 0
@@ -542,6 +593,8 @@ pipeline {
 
             // Validate ZAP against Mutillidae
             sh '''
+              #!/bin/bash
+              set -e
               docker run --rm --network host \
                 zaproxy/zap-stable \
                 zap-baseline.py \
@@ -613,6 +666,8 @@ pipeline {
 
             // Consolidate into all-reports (some stashes will have created directories at workspace root)
             sh '''
+              #!/bin/bash
+              set -e
               mkdir -p all-reports
               cp -r reports all-reports/ || true
               cp -r security-reports all-reports/ || true
@@ -620,26 +675,33 @@ pipeline {
               cp -r documentation all-reports/ || true
             '''
 
-            // Setup Python & Install Dependencies
+            // Setup Python venv & Install Dependencies
             sh '''
+              #!/bin/bash
+              set -e
               if command -v python3 >/dev/null 2>&1; then
                 PY=python3
               elif command -v python >/dev/null 2>&1; then
                 PY=python
               else
-                echo "python not found - please install python3 on the agent"
+                echo "python not found - please install python3 on the agent" >&2
                 exit 1
               fi
 
-              $PY -m pip install --upgrade pip
+              rm -rf .venv_final
+              $PY -m venv .venv_final
+              . .venv_final/bin/activate
+              pip install --upgrade pip
               pip install jinja2 rich
             '''
 
             // Generate Final Enterprise Security Report (same python inline script)
             sh '''
+              #!/bin/bash
+              set -e
               mkdir -p final-report
-
-              python << 'EOF'
+              . .venv_final/bin/activate
+              .venv_final/bin/python << 'PYEOF'
               import os, json, glob, datetime, xml.etree.ElementTree as ET
               from collections import defaultdict
               from jinja2 import Template
@@ -733,7 +795,7 @@ pipeline {
               if severity["CRITICAL"]>0:
                   decision="RELEASE BLOCKED — CRITICAL RISK PRESENT"
 
-              template=Template("""
+              template=Template(\"\"\"
               #  Enterprise DevSecOps Final Security Report
 
               **Project:** IDURAR Platform  
@@ -903,7 +965,7 @@ pipeline {
               # 9. Appendix
 
               All raw scan artifacts retained within CI/CD pipeline for compliance and audit purposes.
-              """)
+              \"\"\")
 
               report=template.render(
                   date=str(datetime.date.today()),
@@ -925,7 +987,7 @@ pipeline {
                   f.write(report)
 
               print("Enterprise Final Security Report generated →", OUTPUT_FILE)
-              EOF
+              PYEOF
             '''
 
             archiveArtifacts artifacts: 'final-report/**', allowEmptyArchive: true
@@ -952,6 +1014,7 @@ pipeline {
               string(credentialsId: 'DOJO_ENGAGEMENT_ID', variable: 'DOJO_ENGAGEMENT_ID')
             ]) {
               sh '''
+                #!/bin/bash
                 set -e
 
                 echo "Uploading enterprise report to DefectDojo..."
@@ -975,7 +1038,11 @@ pipeline {
     always {
       script {
         // Make sure any running compose is shutdown for cleanliness
-        sh 'docker-compose --env-file .env down -v --remove-orphans || true'
+        sh '''
+          #!/bin/bash
+          set -e
+          docker-compose --env-file .env down -v --remove-orphans || true
+        '''
       }
       // publish artifacts again to ensure they are available
       archiveArtifacts artifacts: 'final-report/**', allowEmptyArchive: true
