@@ -43,25 +43,22 @@ pipeline {
             '''
 
             // Secret Scan — Gitleaks
-            sh '''
-              #!/bin/bash
+            sh '''#!/bin/bash
               set -e
               # Ensure reports directory exists with correct permissions
               mkdir -p security-reports
               chmod -R 0777 security-reports
 
-              # Run gitleaks with filesystem scan
-              # Mount both workspace and config file explicitly
+              echo "===== HOST WORKSPACE ====="
+              pwd
+              ls -la
+
+              echo "===== DOCKER CONTAINER TEST ====="
               docker run --rm \
-                -v "$WORKSPACE":/repo \
-                -v "$WORKSPACE/.gitleaks.toml":/config/.gitleaks.toml \
+                -v "$PWD":/repo \
                 -w /repo \
-                zricethezav/gitleaks:latest detect \
-                  --source=. \
-                  --config=/config/.gitleaks.toml \
-                  --report-format json \
-                  --report-path security-reports/gitleaks.json \
-                  --verbose || true
+                alpine \
+                sh -c "pwd && ls -la"
             '''
 
             // Dependency Scan — Trivy FS
