@@ -37,6 +37,11 @@ pipeline {
               mkdir -p "${SEC_REPORTS_DIR}"
             '''
 
+            sh '''
+              echo "===== Workspace Files ====="
+              ls -la
+            '''
+
             // Secret Scan — Gitleaks
             sh '''
               #!/bin/bash
