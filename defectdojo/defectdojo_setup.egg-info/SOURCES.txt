@@ -1,0 +1,6 @@
+pyproject.toml
+defectdojo_setup.egg-info/PKG-INFO
+defectdojo_setup.egg-info/SOURCES.txt
+defectdojo_setup.egg-info/dependency_links.txt
+defectdojo_setup.egg-info/requires.txt
+defectdojo_setup.egg-info/top_level.txt
