@@ -48,13 +48,13 @@ pipeline {
               # Run gitleaks with filesystem scan (no git history required)
               # This approach scans files directly without needing git history
               docker run --rm \
-                -v "$(pwd):/repo" \
+                -v $(pwd):/repo \
                 -w /repo \
                 zricethezav/gitleaks:latest detect \
                   --source=. \
+                  --config=.gitleaks.toml \
                   --report-format json \
                   --report-path security-reports/gitleaks.json \
-                  --no-git \
                   --verbose || true
             '''
 
@@ -197,11 +197,11 @@ pipeline {
               sed 's/=.*$/=****/' .env || true
             '''
 
-            // Docker Build (uses docker compose build)
+            // Docker Build (uses docker-composebuild)
             sh '''
               #!/bin/bash
               set -e
-              docker compose --env-file .env build
+              docker-compose--env-file .env build
             '''
 
             // Trivy Docker Image Scan (backend & frontend)
@@ -236,7 +236,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker compose --env-file .env up -d
+              docker-compose--env-file .env up -d
             '''
 
             // Startup Diagnostics
@@ -246,8 +246,8 @@ pipeline {
               echo "===== Docker Containers ====="
               docker ps -a || true
               echo ""
-              echo "===== docker compose Services ====="
-              docker compose ps || true
+              echo "===== docker-composeServices ====="
+              docker-composeps || true
             '''
 
             sh '''
@@ -371,7 +371,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker compose --env-file .env down -v --remove-orphans || true
+              docker-compose--env-file .env down -v --remove-orphans || true
             '''
           } // catchError
         } // script
@@ -1052,7 +1052,7 @@ pipeline {
         sh '''
           #!/bin/bash
           set -e
-          docker compose --env-file .env down -v --remove-orphans || true
+          docker-compose--env-file .env down -v --remove-orphans || true
         '''
       }
       // publish artifacts again to ensure they are available
