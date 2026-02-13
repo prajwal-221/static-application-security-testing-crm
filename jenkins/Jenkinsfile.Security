@@ -154,11 +154,17 @@ pipeline {
       steps {
         script {
           catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-            // checkout again to ensure workspace has source (keeps parity)
+
             checkout scm
 
-            // Docker Login: uses Jenkins credentials (usernamePassword)
-            withCredentials([usernamePassword(credentialsId: 'docker-hub', usernameVariable: 'DOCKER_USERNAME', passwordVariable: 'DOCKER_TOKEN')]) {
+            // Docker Login
+            withCredentials([
+              usernamePassword(
+                credentialsId: 'docker-hub',
+                usernameVariable: 'DOCKER_USERNAME',
+                passwordVariable: 'DOCKER_TOKEN'
+              )
+            ]) {
               sh '''
                 #!/bin/bash
                 set -e
@@ -166,8 +172,7 @@ pipeline {
               '''
             }
 
-            // Secure .env Generation — use Jenkins secret text / username/passwords for each secret
-            // Bind all required secrets (create these credentials in Jenkins as secret text or username/password as mapped below)
+            // Generate .env
             withCredentials([
               string(credentialsId: 'MONGO_INITDB_ROOT_USERNAME', variable: 'MONGO_INITDB_ROOT_USERNAME'),
               string(credentialsId: 'MONGO_INITDB_ROOT_PASSWORD', variable: 'MONGO_INITDB_ROOT_PASSWORD'),
@@ -194,46 +199,44 @@ pipeline {
               '''
             }
 
-            // Debug — Verify .env Injection (Safe)
             sh '''
               #!/bin/bash
               set -e
-              echo "===== .env Keys Loaded ====="
               sed 's/=.*$/=****/' .env || true
             '''
 
-            // Docker Build (uses docker compose build)
+            // Docker Build
             sh '''
               #!/bin/bash
               set -e
               docker compose --env-file .env build
             '''
 
-
-            // Trivy Docker Image Scan (backend & frontend)
+            // Trivy Image Scan (root)
             sh '''
               #!/bin/bash
               set -e
-              mkdir -p "$(pwd)/security-reports"
-              chmod -R 0777 "$(pwd)/security-reports"
 
-              mkdir -p "$PWD/.trivy-cache"
+              mkdir -p security-reports
+              mkdir -p .trivy-cache
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
+                -u root \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$PWD:/out" \
-                -v "$PWD/security-reports:/out/security-reports" \
                 -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
                 aquasec/trivy:latest image idurar-backend:latest \
                   --cache-dir /tmp/trivy-cache \
+                  --severity HIGH,CRITICAL \
+                  --ignore-unfixed \
+                  --format json \
+                  -o /out/security-reports/trivy-image-backend.json || true
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
+                -u root \
                 -v /var/run/docker.sock:/var/run/docker.sock \
-                -v "$(pwd):/out" \
-                -v "$(pwd)/security-reports:/out/security-reports" \
-                -v "$(pwd)/.trivy-cache:/tmp/trivy-cache" \
+                -v "$PWD:/out" \
+                -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
                 aquasec/trivy:latest image idurar-frontend:latest \
                   --cache-dir /tmp/trivy-cache \
                   --severity HIGH,CRITICAL \
@@ -242,54 +245,29 @@ pipeline {
                   -o /out/security-reports/trivy-image-frontend.json || true
             '''
 
-            // Deploy Stack
+            // Deploy
             sh '''
               #!/bin/bash
               set -e
               docker compose --env-file .env up -d
             '''
 
-            // Startup Diagnostics
+            // Health Check
             sh '''
               #!/bin/bash
               set -e
-              echo "===== Docker Containers ====="
-              docker ps -a || true
-              echo ""
-              echo "===== docker compose Services ====="
-              docker compose ps || true
-            '''
-
-            sh '''
-              #!/bin/bash
-              set -e
-              docker logs idurar-mongodb --tail=200 || true
-              docker logs idurar-backend --tail=200 || true
-              docker logs idurar-frontend --tail=200 || true
-            '''
-
-            // Backend Health Check (use bash range)
-            sh '''
-              #!/bin/bash
-              set -e
-              echo "Waiting for backend to become healthy..."
 
               for i in $(seq 1 60); do
                 if curl -sf http://localhost:4000/public/health; then
-                  echo "Backend is healthy"
                   exit 0
                 fi
-                echo "Retry $i/60 — backend not ready yet"
                 sleep 5
               done
 
-              echo "Backend failed to start"
-              docker logs idurar-backend --tail=200 || true
-              docker logs idurar-mongodb --tail=200 || true
               exit 1
             '''
 
-            // Runtime Scan — Trivy
+            // Runtime Scan
             sh '''
               #!/bin/bash
               set -e
@@ -297,18 +275,18 @@ pipeline {
               mkdir -p security-reports/runtime
 
               docker run --rm \
-               -u $(id -u):$(id -g) \
-               -v /var/run/docker.sock:/var/run/docker.sock \
-               -v "$PWD:/out" \
-               -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
-               aquasec/trivy:latest \
-               image idurar-backend:latest \
-               --cache-dir /tmp/trivy-cache \
-               --format json \
-               -o /out/security-reports/runtime/trivy-runtime-backend.json || true
+                -u root \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v "$PWD:/out" \
+                -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
+                aquasec/trivy:latest \
+                image idurar-backend:latest \
+                --cache-dir /tmp/trivy-cache \
+                --format json \
+                -o /out/security-reports/runtime/trivy-runtime-backend.json || true
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
+                -u root \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$PWD:/out" \
                 -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
@@ -319,18 +297,16 @@ pipeline {
                 -o /out/security-reports/runtime/trivy-runtime-frontend.json || true
             '''
 
-            // DAST — OWASP ZAP Baseline
+            // ZAP Baseline
             sh '''
               #!/bin/bash
               set -e
-              mkdir -p security-reports/zap-baseline
-              chmod 777 security-reports/zap-baseline
 
-              docker pull zaproxy/zap-stable
+              mkdir -p security-reports/zap-baseline
 
               docker run --rm \
                 --network host \
-                -u $(id -u):$(id -g) \
+                -u root \
                 -v "$PWD/security-reports/zap-baseline:/zap/wrk" \
                 zaproxy/zap-stable \
                 zap-baseline.py \
@@ -339,16 +315,16 @@ pipeline {
                 -x zap-baseline.xml || true
             '''
 
-            // ZAP Active Scan (Live App) — note network uses compose project network
+            // ZAP Active
             sh '''
               #!/bin/bash
               set -e
+
               mkdir -p security-reports/zap-active
-              chmod 777 security-reports/zap-active
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
-               --network idurar-ci_idurar-network
+                -u root \
+                --network idurar-ci_idurar-network \
                 -v "$PWD/security-reports/zap-active:/zap/wrk" \
                 zaproxy/zap-stable \
                 zap-full-scan.py \
@@ -357,17 +333,16 @@ pipeline {
                 -x zap-active.xml || true
             '''
 
-            // ZAP Authenticated Scan
-            // JWT_TOKEN already bound earlier for .env; bind again specifically for this call
+            // ZAP Auth
             withCredentials([string(credentialsId: 'JWT_TOKEN', variable: 'JWT_TOKEN')]) {
               sh '''
                 #!/bin/bash
                 set -e
+
                 mkdir -p security-reports/zap-auth
-                chmod 777 security-reports/zap-auth
 
                 docker run --rm \
-                  -u $(id -u):$(id -g) \
+                  -u root \
                   --network idurar-ci_idurar-network \
                   -v "$PWD/security-reports/zap-auth:/zap/wrk" \
                   zaproxy/zap-stable \
@@ -383,15 +358,16 @@ pipeline {
               '''
             }
 
-            // Stash security-reports folder
-            stash name: 'docker-security-reports', includes: 'security-reports/**', allowEmpty: true
+            stash name: 'docker-security-reports',
+                  includes: 'security-reports/**',
+                  allowEmpty: true
 
-            // Cleanup (will run as part of stage always in original pipeline; emulate here)
             sh '''
               #!/bin/bash
               set -e
               docker compose --env-file .env down -v --remove-orphans || true
             '''
+
           } // catchError
         } // script
       } // steps
