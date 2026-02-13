@@ -35,8 +35,7 @@ pipeline {
               mkdir -p "${HOST_WORKSPACE}/${SEC_REPORTS_DIR}"
               chmod -R 0777 "${HOST_WORKSPACE}/${SEC_REPORTS_DIR}"
             '''
-
-            // ✅ FIXED GITLEAKS STAGE
+            // Gitleaks Scan
             sh '''
               #!/bin/bash
               set -e
@@ -51,7 +50,7 @@ pipeline {
                   --verbose || true
             '''
 
-            // Trivy Filesystem Scan (path fixed)
+            // Trivy Filesystem Scan 
             sh '''
               #!/bin/bash
               set -e
