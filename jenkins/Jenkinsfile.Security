@@ -44,6 +44,7 @@ pipeline {
                 -w /repo \
                 zricethezav/gitleaks:latest detect \
                   --source=. \
+                  --config=/repo/.gitleaks.toml \
                   --report-format=json \
                   --report-path=${SEC_REPORTS_DIR}/gitleaks.json \
                   --verbose || true
