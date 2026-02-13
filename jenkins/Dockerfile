@@ -113,17 +113,19 @@ RUN apt-get update && apt-get install -y \
     docker.io \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Docker Compose v2
-RUN mkdir -p /usr/libexec/docker/cli-plugins && \
-    curl -SL https://github.com/docker/compose/releases/latest/download/docker-compose-linux-x86_64 \
-    -o /usr/libexec/docker/cli-plugins/docker-compose && \
-    chmod +x /usr/libexec/docker/cli-plugins/docker-compose    
+# ===============================
+# Docker Compose (Standalone v2)
+# ===============================
+RUN curl -L https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 \
+    -o /usr/local/bin/docker-compose && \
+    chmod +x /usr/local/bin/docker-compose
 
 # ===============================
-# Docker socket permissions 
+# Docker socket permissions fix (dynamic)
 # ===============================
 RUN groupadd -g 999 docker || true
 RUN usermod -aG docker jenkins
+
 
 
 
