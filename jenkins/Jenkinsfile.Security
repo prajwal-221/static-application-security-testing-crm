@@ -1,15 +1,15 @@
 pipeline {
   agent any
+
   environment {
     APP_ENV = 'staging'
     SEC_REPORTS_DIR = 'security-reports'
     COMPOSE_PROJECT_NAME = 'idurar-ci'
     DOCKER_BUILDKIT = '1'
-    // DOCKER_USERNAME and DOCKER_TOKEN are injected via withCredentials when needed
+    HOST_WORKSPACE = "/var/lib/jenkins/workspace/${JOB_NAME}"
   }
 
   options {
-    // Keep build logs and allow long-running steps
     timestamps()
   }
 
@@ -18,7 +18,6 @@ pipeline {
     stage('Checkout') {
       steps {
         script {
-          // checkout once for the pipeline (some stages re-checkout to match GH workflow; kept minimal)
           checkout scm
         }
       }
@@ -30,66 +29,55 @@ pipeline {
     stage('Secrets + SCA Scan') {
       steps {
         script {
-          // Make this stage non-fatal to mimic continue-on-error: true
           catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
-            // Prepare Reports Directory
-            sh '''
-              mkdir -p "${SEC_REPORTS_DIR}"
-            '''
 
             sh '''
-              echo "===== Workspace Files ====="
-              ls -la
+              mkdir -p "${HOST_WORKSPACE}/${SEC_REPORTS_DIR}"
+              chmod -R 0777 "${HOST_WORKSPACE}/${SEC_REPORTS_DIR}"
             '''
 
-            // Secret Scan — Gitleaks
-            sh '''#!/bin/bash
-              set -e
-              # Ensure reports directory exists with correct permissions
-              mkdir -p security-reports
-              chmod -R 0777 security-reports
-
-              echo "===== HOST WORKSPACE ====="
-              pwd
-              ls -la
-
-              echo "===== DOCKER CONTAINER TEST ====="
-              docker run --rm \
-                -v "$PWD":/repo \
-                -w /repo \
-                alpine \
-                sh -c "pwd && ls -la"
-            '''
-
-            // Dependency Scan — Trivy FS
+            // ✅ FIXED GITLEAKS STAGE
             sh '''
               #!/bin/bash
               set -e
-              mkdir -p "$(pwd)/security-reports"
-              chmod -R 0777 "$(pwd)/security-reports"
 
               docker run --rm \
-                -v "$(pwd):/scan" \
-                -v "$(pwd)/security-reports:/scan/security-reports" \
+                -v "${HOST_WORKSPACE}:/repo" \
+                -w /repo \
+                zricethezav/gitleaks:latest detect \
+                  --source=. \
+                  --report-format=json \
+                  --report-path=${SEC_REPORTS_DIR}/gitleaks.json \
+                  --verbose || true
+            '''
+
+            // Trivy Filesystem Scan (path fixed)
+            sh '''
+              #!/bin/bash
+              set -e
+
+              docker run --rm \
+                -v "${HOST_WORKSPACE}:/scan" \
                 aquasec/trivy:latest fs /scan \
                   --severity HIGH,CRITICAL \
                   --ignore-unfixed \
                   --format json \
-                  -o /scan/security-reports/trivy-fs.json || true
+                  -o /scan/${SEC_REPORTS_DIR}/trivy-fs.json || true
             '''
 
-            // Verify Reports Generated
             sh '''
               echo "===== Generated Security Reports ====="
-              ls -lh ${SEC_REPORTS_DIR} || true
+              ls -lh ${HOST_WORKSPACE}/${SEC_REPORTS_DIR} || true
             '''
 
-            // Stash reports (acts like upload-artifact)
-            stash name: 'secrets-and-sca-reports', includes: "${env.SEC_REPORTS_DIR}/**", allowEmpty: true
-          } // catchError
-        } // script
-      } // steps
-    } // stage
+            stash name: 'secrets-and-sca-reports',
+                  includes: "${SEC_REPORTS_DIR}/**",
+                  allowEmpty: true
+          }
+        }
+      }
+    }
+
 
 
     // ============================================================
@@ -1055,7 +1043,7 @@ pipeline {
         sh '''
           #!/bin/bash
           set -e
-          docker-compose --env-file .env down -v --remove-orphans || true
+          docker compose --env-file .env down -v --remove-orphans || true
         '''
       }
       // publish artifacts again to ensure they are available
