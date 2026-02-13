@@ -206,10 +206,10 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker compose --env-file .env build
+              docker compose .env build
             '''
 
-            
+
             // Trivy Docker Image Scan (backend & frontend)
             sh '''
               #!/bin/bash
@@ -244,7 +244,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker compose --env-file .env up -d
+              docker compose .env up -d
             '''
 
             // Startup Diagnostics
@@ -384,7 +384,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker compose --env-file .env down -v --remove-orphans || true
+              docker compose .env down -v --remove-orphans || true
             '''
           } // catchError
         } // script
@@ -1065,7 +1065,7 @@ pipeline {
         sh '''
           #!/bin/bash
           set -e
-          docker compose --env-file .env down -v --remove-orphans || true
+          docker compose .env down -v --remove-orphans || true
         '''
       }
       // publish artifacts again to ensure they are available
