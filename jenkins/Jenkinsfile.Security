@@ -69,6 +69,7 @@ pipeline {
               ls -lh ${WORKSPACE}/${SEC_REPORTS_DIR} || true
             '''
 
+            // Stash secrets and sca reports
             stash name: 'secrets-and-sca-reports',
                   includes: "${SEC_REPORTS_DIR}/**",
                   allowEmpty: true
