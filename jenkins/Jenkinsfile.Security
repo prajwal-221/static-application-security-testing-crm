@@ -33,6 +33,16 @@ pipeline {
 
             sh '''
               mkdir -p "${WORKSPACE}/${SEC_REPORTS_DIR}"
+              chmod -R 0777 "${WORKSPACE}/${SEC_REPORTS_DIR}"
+            '''
+            
+            sh '''
+                echo "===== PIPELINE WORKSPACE DEBUG ====="
+                echo "WORKSPACE = $WORKSPACE"
+                pwd
+                ls -la
+                echo "Check gitleaks file:"
+                ls -la .gitleaks.toml || true
             '''
             
             // Gitleaks Scan
@@ -41,7 +51,6 @@ pipeline {
               set -e
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
                 -v "${HOST_WORKSPACE}:/repo" \
                 -w /repo \
                 zricethezav/gitleaks:latest detect \
@@ -59,7 +68,6 @@ pipeline {
               set -e
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
                 -v "${HOST_WORKSPACE}:/scan" \
                 aquasec/trivy:latest fs /scan \
                   --severity HIGH,CRITICAL \
@@ -207,7 +215,6 @@ pipeline {
               chmod -R 0777 "$(pwd)/security-reports"
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$(pwd):/out" \
                 -v "$(pwd)/security-reports:/out/security-reports" \
@@ -218,7 +225,6 @@ pipeline {
                   -o /out/security-reports/trivy-image-backend.json || true
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$(pwd):/out" \
                 -v "$(pwd)/security-reports:/out/security-reports" \
@@ -281,7 +287,6 @@ pipeline {
               #!/bin/bash
               set -e
               docker run --rm \
-                -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$PWD:/out" \
                 aquasec/trivy:latest \
@@ -290,7 +295,6 @@ pipeline {
                 -o /out/${SEC_REPORTS_DIR}/trivy-runtime-backend.json || true
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$PWD:/out" \
                 aquasec/trivy:latest \
@@ -310,7 +314,7 @@ pipeline {
 
               docker run --rm \
                 --network host \
-                -u $(id -u):$(id -g) \
+                -u root \
                 -v "$PWD/security-reports/zap-baseline:/zap/wrk" \
                 zaproxy/zap-stable \
                 zap-baseline.py \
@@ -327,7 +331,7 @@ pipeline {
               chmod 777 security-reports/zap-active
 
               docker run --rm \
-                -u $(id -u):$(id -g) \
+                -u root \
                 --network ${COMPOSE_PROJECT_NAME}_idurar-network \
                 -v "$PWD/security-reports/zap-active:/zap/wrk" \
                 zaproxy/zap-stable \
@@ -347,7 +351,7 @@ pipeline {
                 chmod 777 security-reports/zap-auth
 
                 docker run --rm \
-                  -u $(id -u):$(id -g) \
+                  -u root \
                   --network ${COMPOSE_PROJECT_NAME}_idurar-network \
                   -v "$PWD/security-reports/zap-auth:/zap/wrk" \
                   zaproxy/zap-stable \
