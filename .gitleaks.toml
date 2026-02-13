@@ -54,6 +54,22 @@ id = "database-connection-string"
 regex = '''(?i)(?:mongodb|mysql|postgres|postgresql)://[^\s/$.?#].[^\s]*'''
 keywords = ["mongodb://", "mysql://", "postgres://", "postgresql://"]
 
+# Block private keys
+[[rules]]
+id = "private-key"
+description = "Private key detected"
+regex = '''-----BEGIN (RSA|EC|DSA|OPENSSH) PRIVATE KEY-----'''
+tags = ["key", "private"]
+severity = "CRITICAL"
+
+# Block .env files completely
+[[rules]]
+id = "dotenv-file"
+description = ".env file committed"
+path = '''\.env'''
+severity = "CRITICAL"
+
+
 [allowlist]
 description = "Global Allowlist"
 paths = [

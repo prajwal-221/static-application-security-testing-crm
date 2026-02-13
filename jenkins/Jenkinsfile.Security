@@ -258,7 +258,7 @@ pipeline {
               set -e
 
               for i in $(seq 1 60); do
-                if curl -sf http://127.0.0.1:4000/public/health; then
+                if curl -sf http://localhost:4000/public/health; then
                   exit 0
                 fi
                 sleep 5
@@ -310,7 +310,7 @@ pipeline {
                 -v "$PWD/security-reports/zap-baseline:/zap/wrk" \
                 zaproxy/zap-stable \
                 zap-baseline.py \
-                -t http://127.0.0.1:4000 \
+                -t http://localhost:4000 \
                 -r zap-baseline.html \
                 -x zap-baseline.xml || true
             '''
@@ -586,7 +586,7 @@ pipeline {
               set -e
               echo "Waiting for Mutillidae..."
               for i in $(seq 1 30); do
-                if curl -sf http://127.0.0.1:8081; then
+                if curl -sf http://localhost:8081; then
                   echo "Mutillidae is ready"
                   exit 0
                 fi
@@ -604,7 +604,7 @@ pipeline {
               docker run --rm --network host \
                 zaproxy/zap-stable \
                 zap-baseline.py \
-                -t http://127.0.0.1:8081 \
+                -t http://localhost:8081 \
                 -r mutillidae-zap.html || true
             '''
 
