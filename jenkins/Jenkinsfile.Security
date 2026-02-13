@@ -6,7 +6,6 @@ pipeline {
     SEC_REPORTS_DIR = 'security-reports'
     COMPOSE_PROJECT_NAME = 'idurar-ci'
     DOCKER_BUILDKIT = '1'
-    HOST_WORKSPACE = "/var/lib/jenkins/workspace/${JOB_NAME}"
   }
 
   options {
@@ -32,8 +31,8 @@ pipeline {
           catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
 
             sh '''
-              mkdir -p "${HOST_WORKSPACE}/${SEC_REPORTS_DIR}"
-              chmod -R 0777 "${HOST_WORKSPACE}/${SEC_REPORTS_DIR}"
+              mkdir -p "${WORKSPACE}/${SEC_REPORTS_DIR}"
+              chmod -R 0777 "${WORKSPACE}/${SEC_REPORTS_DIR}"
             '''
             // Gitleaks Scan
             sh '''
@@ -41,7 +40,7 @@ pipeline {
               set -e
 
               docker run --rm \
-                -v "${HOST_WORKSPACE}:/repo" \
+                -v "${WORKSPACE}:/repo" \
                 -w /repo \
                 zricethezav/gitleaks:latest detect \
                   --source=. \
@@ -56,7 +55,7 @@ pipeline {
               set -e
 
               docker run --rm \
-                -v "${HOST_WORKSPACE}:/scan" \
+                -v "${WORKSPACE}:/scan" \
                 aquasec/trivy:latest fs /scan \
                   --severity HIGH,CRITICAL \
                   --ignore-unfixed \
@@ -66,7 +65,7 @@ pipeline {
 
             sh '''
               echo "===== Generated Security Reports ====="
-              ls -lh ${HOST_WORKSPACE}/${SEC_REPORTS_DIR} || true
+              ls -lh ${WORKSPACE}/${SEC_REPORTS_DIR} || true
             '''
 
             stash name: 'secrets-and-sca-reports',
