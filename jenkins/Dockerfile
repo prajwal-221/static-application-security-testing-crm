@@ -122,7 +122,7 @@ RUN mkdir -p /usr/libexec/docker/cli-plugins && \
 # ===============================
 # Docker socket permissions 
 # ===============================
-RUN groupadd docker || true
+RUN groupadd -g 999 docker || true
 RUN usermod -aG docker jenkins
 
 
