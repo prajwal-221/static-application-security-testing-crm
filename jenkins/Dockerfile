@@ -120,6 +120,12 @@ RUN curl -L https://github.com/docker/compose/releases/download/v2.27.0/docker-c
     -o /usr/local/bin/docker-compose && \
     chmod +x /usr/local/bin/docker-compose
 
+RUN mkdir -p /usr/libexec/docker/cli-plugins && \
+    curl -SL https://github.com/docker/compose/releases/download/v2.27.0/docker-compose-linux-x86_64 \
+    -o /usr/libexec/docker/cli-plugins/docker-compose && \
+    chmod +x /usr/libexec/docker/cli-plugins/docker-compose
+
+
 # ===============================
 # Docker socket permissions fix (dynamic)
 # ===============================

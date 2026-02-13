@@ -768,7 +768,7 @@ jobs:
               decision="RELEASE BLOCKED — CRITICAL RISK PRESENT"
 
           template=Template("""
-          # 🛡️ Enterprise DevSecOps Final Security Report
+          # Enterprise DevSecOps Final Security Report
 
           **Project:** IDURAR Platform  
           **Environment:** Staging  
