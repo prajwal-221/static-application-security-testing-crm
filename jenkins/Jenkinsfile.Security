@@ -217,23 +217,25 @@ pipeline {
               mkdir -p "$(pwd)/security-reports"
               chmod -R 0777 "$(pwd)/security-reports"
 
+              mkdir -p "$PWD/.trivy-cache"
+
               docker run --rm \
                 -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
-                -v "$(pwd):/out" \
-                -v "$(pwd)/security-reports:/out/security-reports" \
+                -v "$PWD:/out" \
+                -v "$PWD/security-reports:/out/security-reports" \
+                -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
                 aquasec/trivy:latest image idurar-backend:latest \
-                  --severity HIGH,CRITICAL \
-                  --ignore-unfixed \
-                  --format json \
-                  -o /out/security-reports/trivy-image-backend.json || true
+                  --cache-dir /tmp/trivy-cache \
 
               docker run --rm \
                 -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$(pwd):/out" \
                 -v "$(pwd)/security-reports:/out/security-reports" \
+                -v "$(pwd)/.trivy-cache:/tmp/trivy-cache" \
                 aquasec/trivy:latest image idurar-frontend:latest \
+                  --cache-dir /tmp/trivy-cache \
                   --severity HIGH,CRITICAL \
                   --ignore-unfixed \
                   --format json \
@@ -291,23 +293,30 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
+
+              mkdir -p security-reports/runtime
+
               docker run --rm \
-                -u $(id -u):$(id -g) \
-                -v /var/run/docker.sock:/var/run/docker.sock \
-                -v "$PWD:/out" \
-                aquasec/trivy:latest \
-                image idurar-backend:latest \
-                --format json \
-                -o /out/${SEC_REPORTS_DIR}/trivy-runtime-backend.json || true
+               -u $(id -u):$(id -g) \
+               -v /var/run/docker.sock:/var/run/docker.sock \
+               -v "$PWD:/out" \
+               -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
+               aquasec/trivy:latest \
+               image idurar-backend:latest \
+               --cache-dir /tmp/trivy-cache \
+               --format json \
+               -o /out/security-reports/runtime/trivy-runtime-backend.json || true
 
               docker run --rm \
                 -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$PWD:/out" \
+                -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
                 aquasec/trivy:latest \
                 image idurar-frontend:latest \
+                --cache-dir /tmp/trivy-cache \
                 --format json \
-                -o /out/${SEC_REPORTS_DIR}/trivy-runtime-frontend.json || true
+                -o /out/security-reports/runtime/trivy-runtime-frontend.json || true
             '''
 
             // DAST — OWASP ZAP Baseline
@@ -321,7 +330,6 @@ pipeline {
 
               docker run --rm \
                 --network host \
-                -u root \
                 -u $(id -u):$(id -g) \
                 -v "$PWD/security-reports/zap-baseline:/zap/wrk" \
                 zaproxy/zap-stable \
@@ -339,9 +347,8 @@ pipeline {
               chmod 777 security-reports/zap-active
 
               docker run --rm \
-                -u root \
                 -u $(id -u):$(id -g) \
-                --network ${COMPOSE_PROJECT_NAME}_idurar-network \
+               --network idurar-ci_idurar-network
                 -v "$PWD/security-reports/zap-active:/zap/wrk" \
                 zaproxy/zap-stable \
                 zap-full-scan.py \
@@ -360,9 +367,8 @@ pipeline {
                 chmod 777 security-reports/zap-auth
 
                 docker run --rm \
-                  -u root \
                   -u $(id -u):$(id -g) \
-                  --network ${COMPOSE_PROJECT_NAME}_idurar-network \
+                  --network idurar-ci_idurar-network \
                   -v "$PWD/security-reports/zap-auth:/zap/wrk" \
                   zaproxy/zap-stable \
                   zap-full-scan.py \
