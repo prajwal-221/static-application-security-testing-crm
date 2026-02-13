@@ -51,6 +51,7 @@ pipeline {
               set -e
 
               docker run --rm \
+                -u $(id -u):$(id -g) \
                 -v "${HOST_WORKSPACE}:/repo" \
                 -w /repo \
                 zricethezav/gitleaks:latest detect \
@@ -68,6 +69,7 @@ pipeline {
               set -e
 
               docker run --rm \
+                -u $(id -u):$(id -g) \
                 -v "${HOST_WORKSPACE}:/scan" \
                 aquasec/trivy:latest fs /scan \
                   --severity HIGH,CRITICAL \
@@ -216,6 +218,7 @@ pipeline {
               chmod -R 0777 "$(pwd)/security-reports"
 
               docker run --rm \
+                -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$(pwd):/out" \
                 -v "$(pwd)/security-reports:/out/security-reports" \
@@ -226,6 +229,7 @@ pipeline {
                   -o /out/security-reports/trivy-image-backend.json || true
 
               docker run --rm \
+                -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$(pwd):/out" \
                 -v "$(pwd)/security-reports:/out/security-reports" \
@@ -288,6 +292,7 @@ pipeline {
               #!/bin/bash
               set -e
               docker run --rm \
+                -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$PWD:/out" \
                 aquasec/trivy:latest \
@@ -296,6 +301,7 @@ pipeline {
                 -o /out/${SEC_REPORTS_DIR}/trivy-runtime-backend.json || true
 
               docker run --rm \
+                -u $(id -u):$(id -g) \
                 -v /var/run/docker.sock:/var/run/docker.sock \
                 -v "$PWD:/out" \
                 aquasec/trivy:latest \
@@ -316,6 +322,7 @@ pipeline {
               docker run --rm \
                 --network host \
                 -u root \
+                -u $(id -u):$(id -g) \
                 -v "$PWD/security-reports/zap-baseline:/zap/wrk" \
                 zaproxy/zap-stable \
                 zap-baseline.py \
@@ -333,6 +340,7 @@ pipeline {
 
               docker run --rm \
                 -u root \
+                -u $(id -u):$(id -g) \
                 --network ${COMPOSE_PROJECT_NAME}_idurar-network \
                 -v "$PWD/security-reports/zap-active:/zap/wrk" \
                 zaproxy/zap-stable \
@@ -353,6 +361,7 @@ pipeline {
 
                 docker run --rm \
                   -u root \
+                  -u $(id -u):$(id -g) \
                   --network ${COMPOSE_PROJECT_NAME}_idurar-network \
                   -v "$PWD/security-reports/zap-auth:/zap/wrk" \
                   zaproxy/zap-stable \
@@ -375,7 +384,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker compose --env-file .env down -v --remove-orphans || true
+              docker compose .env down -v --remove-orphans || true
             '''
           } // catchError
         } // script
@@ -1056,7 +1065,7 @@ pipeline {
         sh '''
           #!/bin/bash
           set -e
-          docker compose --env-file .env down -v --remove-orphans || true
+          docker compose .env down -v --remove-orphans || true
         '''
       }
       // publish artifacts again to ensure they are available
