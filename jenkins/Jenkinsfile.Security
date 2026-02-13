@@ -202,11 +202,11 @@ pipeline {
               sed 's/=.*$/=****/' .env || true
             '''
 
-            // Docker Build (uses docker-compose build)
+            // Docker Build (uses docker compose build)
             sh '''
               #!/bin/bash
               set -e
-              docker-compose --env-file .env build
+              docker compose --env-file .env build
             '''
 
             // Trivy Docker Image Scan (backend & frontend)
@@ -243,7 +243,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker-compose --env-file .env up -d
+              docker compose --env-file .env up -d
             '''
 
             // Startup Diagnostics
@@ -253,8 +253,8 @@ pipeline {
               echo "===== Docker Containers ====="
               docker ps -a || true
               echo ""
-              echo "===== docker-compose Services ====="
-              docker-compose ps || true
+              echo "===== docker compose Services ====="
+              docker compose ps || true
             '''
 
             sh '''
@@ -383,7 +383,7 @@ pipeline {
             sh '''
               #!/bin/bash
               set -e
-              docker-compose --env-file .env down -v --remove-orphans || true
+              docker compose --env-file .env down -v --remove-orphans || true
             '''
           } // catchError
         } // script
@@ -1064,7 +1064,7 @@ pipeline {
         sh '''
           #!/bin/bash
           set -e
-          docker-compose --env-file .env down -v --remove-orphans || true
+          docker compose --env-file .env down -v --remove-orphans || true
         '''
       }
       // publish artifacts again to ensure they are available
