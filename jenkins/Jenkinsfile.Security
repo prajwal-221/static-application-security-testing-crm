@@ -34,6 +34,16 @@ pipeline {
               mkdir -p "${WORKSPACE}/${SEC_REPORTS_DIR}"
               chmod -R 0777 "${WORKSPACE}/${SEC_REPORTS_DIR}"
             '''
+            
+            sh '''
+                echo "===== PIPELINE WORKSPACE DEBUG ====="
+                echo "WORKSPACE = $WORKSPACE"
+                pwd
+                ls -la
+                echo "Check gitleaks file:"
+                ls -la .gitleaks.toml || true
+            '''
+            
             // Gitleaks Scan
             sh '''
               #!/bin/bash
