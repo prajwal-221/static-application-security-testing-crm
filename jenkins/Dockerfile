@@ -120,7 +120,7 @@ RUN mkdir -p /usr/libexec/docker/cli-plugins && \
     chmod +x /usr/libexec/docker/cli-plugins/docker-compose    
 
 # ===============================
-# Docker socket permissions 
+# Docker socket permissions
 # ===============================
 RUN groupadd -g 999 docker || true
 RUN usermod -aG docker jenkins
