@@ -9,11 +9,11 @@ services:
   mongodb:
     image: mongo:6.0
     container_name: idurar-mongodb
+    command: ["mongod", "--bind_ip_all"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: admin
-    command: mongod --bind_ip_all --auth
     volumes:
       - mongodb_data:/data/db
       - ./mongodb/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
@@ -22,17 +22,10 @@ services:
     networks:
       - idurar-network
     healthcheck:
-      test: [
-        "CMD",
-        "mongosh",
-        "-u", "${MONGO_INITDB_ROOT_USERNAME}",
-        "-p", "${MONGO_INITDB_ROOT_PASSWORD}",
-        "--authenticationDatabase", "admin",
-        "--eval", "db.adminCommand('ping')"
-      ]
-      interval: 10s
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 15
 
   backend:
     image: idurar-backend:latest
@@ -55,9 +48,9 @@ services:
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4000/public/health"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 10
+      retries: 15
 
   frontend:
     image: idurar-frontend:latest
