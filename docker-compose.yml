@@ -34,10 +34,6 @@ services:
       - "4000:4000"
     depends_on:
       - mongodb
-    healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
-      interval: 10s
-      retries: 5
     networks:
       - idurar-network
     restart: unless-stopped
