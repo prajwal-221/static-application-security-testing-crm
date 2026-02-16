@@ -731,300 +731,301 @@ pipeline {
               pip install jinja2 rich
             '''
 
-            // Generate Final Enterprise Security Report (same python inline script)
+            // Generate Final Enterprise Security Report
             sh '''
-              #!/bin/bash
-              set -e
-              mkdir -p final-report
-              . .venv_final/bin/activate
-              .venv_final/bin/python << 'PYEOF'
-              import os, json, glob, datetime, xml.etree.ElementTree as ET
-              from collections import defaultdict
-              from jinja2 import Template
-
-              REPORT_ROOT = "all-reports"
-              OUTPUT_FILE = "final-report/final-security-report.md"
-
-              severity = defaultdict(int)
-              tools = defaultdict(list)
-
-              def normalize(sev):
-                  sev = sev.upper()
-                  if sev in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"]:
-                      return sev
-                  if sev in ["WARN","WARNING"]:
-                      return "MEDIUM"
-                  return "LOW"
-
-              def parse_trivy(file):
-                  try:
-                      data=json.load(open(file))
-                      for r in data.get("Results",[]):
-                          for v in r.get("Vulnerabilities",[]):
-                              s=normalize(v.get("Severity","LOW"))
-                              severity[s]+=1
-                              tools["Trivy"].append(v.get("VulnerabilityID","UNKNOWN"))
-                  except: pass
-
-              def parse_semgrep(file):
-                  try:
-                      data=json.load(open(file))
-                      for r in data.get("results",[]):
-                          s=normalize(r.get("extra",{}).get("severity","LOW"))
-                          severity[s]+=1
-                          tools["Semgrep"].append(r.get("check_id","UNKNOWN"))
-                  except: pass
-
-              def parse_gitleaks(file):
-                  try:
-                      with open(file, "r") as fh:
-                          data = json.load(fh)
-
-                      seen = set()
-
-                      for f in data:
-                          fingerprint = (
-                              f.get("RuleID"),
-                              f.get("File"),
-                              f.get("StartLine"),
-                              f.get("Commit")
-                          )
-
-                          if fingerprint in seen:
-                              continue
-
-                          seen.add(fingerprint)
-                          severity["HIGH"] += 1
-                          tools["Gitleaks"].append(
-                              f.get("Description", "Hardcoded Secret")
-                          )
-
-                  except Exception as e:
-                      print(f"Gitleaks parse error in {file}: {e}")
-
-              def parse_zap(file):
-                  try:
-                      tree=ET.parse(file)
-                      root=tree.getroot()
-                      for alert in root.iter("alertitem"):
-                          sev=normalize(alert.findtext("riskdesc","Low").split()[0])
-                          severity[sev]+=1
-                          tools["ZAP"].append(alert.findtext("name","Web Vulnerability"))
-                  except: pass
-
-              for f in glob.glob(f"{REPORT_ROOT}/**/*", recursive=True):
-                  if f.endswith(".json"):
-                      if "trivy" in f: parse_trivy(f)
-                      elif "semgrep" in f: parse_semgrep(f)
-                      elif "gitleaks" in f: parse_gitleaks(f)
-                  elif f.endswith(".xml") and "zap" in f:
-                      parse_zap(f)
-
-              total=sum(severity.values())
-
-              risk="LOW"
-              if severity["CRITICAL"]>0: risk="CRITICAL"
-              elif severity["HIGH"]>10: risk="HIGH"
-              elif severity["MEDIUM"]>25: risk="MODERATE"
-
-              decision="APPROVED FOR RELEASE WITH SECURITY CONDITIONS"
-              if severity["CRITICAL"]>0:
-                  decision="RELEASE BLOCKED — CRITICAL RISK PRESENT"
-
-              template=Template(\"\"\"
-              #  Enterprise DevSecOps Final Security Report
-
-              **Project:** IDURAR Platform  
-              **Environment:** Staging  
-              **Pipeline:** Enterprise DevSecOps CI/CD  
-              **Date:** {{ date }}  
+#!/bin/bash
+set -e
+mkdir -p final-report
+. .venv_final/bin/activate
+
+python <<'PYEOF'
+import os, json, glob, datetime, xml.etree.ElementTree as ET
+from collections import defaultdict
+from jinja2 import Template
+
+REPORT_ROOT = "all-reports"
+OUTPUT_FILE = "final-report/final-security-report.md"
+
+severity = defaultdict(int)
+tools = defaultdict(list)
+
+def normalize(sev):
+    sev = sev.upper()
+    if sev in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"]:
+        return sev
+    if sev in ["WARN","WARNING"]:
+        return "MEDIUM"
+    return "LOW"
+
+def parse_trivy(file):
+    try:
+        data=json.load(open(file))
+        for r in data.get("Results",[]):
+            for v in r.get("Vulnerabilities",[]):
+                s=normalize(v.get("Severity","LOW"))
+                severity[s]+=1
+                tools["Trivy"].append(v.get("VulnerabilityID","UNKNOWN"))
+    except: pass
+
+def parse_semgrep(file):
+    try:
+        data=json.load(open(file))
+        for r in data.get("results",[]):
+            s=normalize(r.get("extra",{}).get("severity","LOW"))
+            severity[s]+=1
+            tools["Semgrep"].append(r.get("check_id","UNKNOWN"))
+    except: pass
+
+def parse_gitleaks(file):
+    try:
+        with open(file, "r") as fh:
+            data = json.load(fh)
+
+        seen = set()
+
+        for f in data:
+            fingerprint = (
+                f.get("RuleID"),
+                f.get("File"),
+                f.get("StartLine"),
+                f.get("Commit")
+            )
+
+            if fingerprint in seen:
+                continue
+
+            seen.add(fingerprint)
+            severity["HIGH"] += 1
+            tools["Gitleaks"].append(
+                f.get("Description", "Hardcoded Secret")
+            )
+
+    except Exception as e:
+        print(f"Gitleaks parse error in {file}: {e}")
+
+def parse_zap(file):
+    try:
+        tree=ET.parse(file)
+        root=tree.getroot()
+        for alert in root.iter("alertitem"):
+            sev=normalize(alert.findtext("riskdesc","Low").split()[0])
+            severity[sev]+=1
+            tools["ZAP"].append(alert.findtext("name","Web Vulnerability"))
+    except: pass
+
+for f in glob.glob(f"{REPORT_ROOT}/**/*", recursive=True):
+    if f.endswith(".json"):
+        if "trivy" in f: parse_trivy(f)
+        elif "semgrep" in f: parse_semgrep(f)
+        elif "gitleaks" in f: parse_gitleaks(f)
+    elif f.endswith(".xml") and "zap" in f:
+        parse_zap(f)
+
+total=sum(severity.values())
+
+risk="LOW"
+if severity["CRITICAL"]>0: risk="CRITICAL"
+elif severity["HIGH"]>10: risk="HIGH"
+elif severity["MEDIUM"]>25: risk="MODERATE"
+
+decision="APPROVED FOR RELEASE WITH SECURITY CONDITIONS"
+if severity["CRITICAL"]>0:
+    decision="RELEASE BLOCKED — CRITICAL RISK PRESENT"
+
+template=Template("""
+#  Enterprise DevSecOps Final Security Report
 
-              ---
+**Project:** IDURAR Platform  
+**Environment:** Staging  
+**Pipeline:** Enterprise DevSecOps CI/CD  
+**Date:** {{ date }}  
 
-              # 1. Executive Summary
+---
 
-              ### Overall Security Posture: **{{ risk }} RISK**
+# 1. Executive Summary
 
-              | Severity | Count |
-              |------------|--------|
-              | Critical | {{ crit }} |
-              | High | {{ high }} |
-              | Medium | {{ med }} |
-              | Low | {{ low }} |
-              | Informational | {{ info }} |
-              | **Total** | **{{ total }}** |
+### Overall Security Posture: **{{ risk }} RISK**
 
-              **Release Decision:** **{{ decision }}**
+| Severity | Count |
+|------------|--------|
+| Critical | {{ crit }} |
+| High | {{ high }} |
+| Medium | {{ med }} |
+| Low | {{ low }} |
+| Informational | {{ info }} |
+| **Total** | **{{ total }}** |
 
-              ---
+**Release Decision:** **{{ decision }}**
 
-              # 2. Security Coverage Overview
+---
 
-              End-to-end security validation was executed across:
+# 2. Security Coverage Overview
 
-              - Secrets detection
-              - Dependency security (SCA)
-              - Static application security testing (SAST)
-              - Container image & runtime security
-              - Dynamic application security testing (DAST)
-              - Pipeline exploit validation
+End-to-end security validation was executed across:
 
-              ---
+- Secrets detection
+- Dependency security (SCA)
+- Static application security testing (SAST)
+- Container image & runtime security
+- Dynamic application security testing (DAST)
+- Pipeline exploit validation
 
-              # 3. Consolidated Vulnerability Analysis
+---
 
-              ## A. Secrets & Credential Exposure — Gitleaks
+# 3. Consolidated Vulnerability Analysis
 
-              **Findings:** {{ gitleaks }}  
-              **Impact:** Credential compromise enables unauthorized access, lateral movement, and data exfiltration.  
+## A. Secrets & Credential Exposure — Gitleaks
 
-              **Remediation:**
-              - Rotate all exposed credentials immediately  
-              - Remove secrets from Git history  
-              - Enforce secrets scanning in CI  
+**Findings:** {{ gitleaks }}  
+**Impact:** Credential compromise enables unauthorized access, lateral movement, and data exfiltration.  
 
-              **Engineering Fixes:**
-              - Use GitHub Secrets / Vault injection  
-              - Implement pre-commit hooks  
-              - Enforce secret lifecycle governance  
+**Remediation:**
+- Rotate all exposed credentials immediately  
+- Remove secrets from Git history  
+- Enforce secrets scanning in CI  
 
-              ---
+**Engineering Fixes:**
+- Use GitHub Secrets / Vault injection  
+- Implement pre-commit hooks  
+- Enforce secret lifecycle governance  
 
-              ## B. Dependency & SCA Findings — Trivy
+---
 
-              **Findings:** {{ trivy }}  
-              **Impact:** Known vulnerable libraries introduce exploitable attack paths.  
+## B. Dependency & SCA Findings — Trivy
 
-              **Remediation:**
-              - Patch high & critical CVEs  
-              - Enforce dependency SLAs  
+**Findings:** {{ trivy }}  
+**Impact:** Known vulnerable libraries introduce exploitable attack paths.  
 
-              **Engineering Fixes:**
-              - SBOM validation  
-              - Automated dependency upgrades  
+**Remediation:**
+- Patch high & critical CVEs  
+- Enforce dependency SLAs  
 
-              ---
+**Engineering Fixes:**
+- SBOM validation  
+- Automated dependency upgrades  
 
-              ## C. Static Code Vulnerabilities — Semgrep
+---
 
-              **Findings:** {{ semgrep }}  
-              **Impact:** Injection, authentication bypass, and logic flaws.  
+## C. Static Code Vulnerabilities — Semgrep
 
-              **Remediation:**
-              - Refactor insecure code  
-              - Apply secure coding patterns  
+**Findings:** {{ semgrep }}  
+**Impact:** Injection, authentication bypass, and logic flaws.  
 
-              **Engineering Fixes:**
-              - SAST gating  
-              - Secure coding standards  
+**Remediation:**
+- Refactor insecure code  
+- Apply secure coding patterns  
 
-              ---
+**Engineering Fixes:**
+- SAST gating  
+- Secure coding standards  
 
-              ## D. Container Image & Runtime Vulnerabilities — Trivy
+---
 
-              **Findings:** {{ trivy }}  
-              **Impact:** Runtime exploitation and container breakout risk.  
+## D. Container Image & Runtime Vulnerabilities — Trivy
 
-              **Remediation:**
-              - Harden base images  
-              - Patch runtime packages  
+**Findings:** {{ trivy }}  
+**Impact:** Runtime exploitation and container breakout risk.  
 
-              **Engineering Fixes:**
-              - Distroless containers  
-              - Runtime protection enforcement  
+**Remediation:**
+- Harden base images  
+- Patch runtime packages  
 
-              ---
+**Engineering Fixes:**
+- Distroless containers  
+- Runtime protection enforcement  
 
-              ## E. Dynamic Application Security Testing — OWASP ZAP
+---
 
-              **Findings:** {{ zap }}  
-              **Impact:** SQL injection, XSS, authentication bypass, session fixation.  
+## E. Dynamic Application Security Testing — OWASP ZAP
 
-              **Remediation:**
-              - Apply OWASP Top 10 mitigations  
+**Findings:** {{ zap }}  
+**Impact:** SQL injection, XSS, authentication bypass, session fixation.  
 
-              **Engineering Fixes:**
-              - Secure request validation  
-              - Security headers & session hardening  
+**Remediation:**
+- Apply OWASP Top 10 mitigations  
 
-              ---
+**Engineering Fixes:**
+- Secure request validation  
+- Security headers & session hardening  
 
-              # 4. Root Cause Analysis
+---
 
-              - Weak secrets governance  
-              - Dependency lifecycle gaps  
-              - Unhardened runtime environments  
-              - Missing secure SDLC enforcement  
+# 4. Root Cause Analysis
 
-              ---
+- Weak secrets governance  
+- Dependency lifecycle gaps  
+- Unhardened runtime environments  
+- Missing secure SDLC enforcement  
 
-              # 5. Security Recommendations Roadmap
+---
 
-              **Immediate (0–7 Days):**
-              - Patch critical CVEs  
-              - Rotate secrets  
-              - Harden containers  
+# 5. Security Recommendations Roadmap
 
-              **Short Term (30 Days):**
-              - Enforce SAST & SCA gates  
-              - Introduce SBOM governance  
+**Immediate (0–7 Days):**
+- Patch critical CVEs  
+- Rotate secrets  
+- Harden containers  
 
-              **Strategic (90 Days):**
-              - Zero Trust architecture  
-              - Runtime exploit detection  
-              - Threat modeling automation  
+**Short Term (30 Days):**
+- Enforce SAST & SCA gates  
+- Introduce SBOM governance  
 
-              ---
+**Strategic (90 Days):**
+- Zero Trust architecture  
+- Runtime exploit detection  
+- Threat modeling automation  
 
-              # 6. DevSecOps Maturity Assessment
+---
 
-              **Maturity Level:** Advanced  
+# 6. DevSecOps Maturity Assessment
 
-              CI/CD demonstrates high security automation, governance, and enterprise readiness.
+**Maturity Level:** Advanced  
 
-              ---
+CI/CD demonstrates high security automation, governance, and enterprise readiness.
 
-              # 7. Strategic Security Enhancements
+---
 
-              - CSPM & cloud posture management  
-              - Continuous breach simulation  
-              - Automated compliance reporting  
+# 7. Strategic Security Enhancements
 
-              ---
+- CSPM & cloud posture management  
+- Continuous breach simulation  
+- Automated compliance reporting  
 
-              # 8. Final Security Verdict
+---
 
-              **{{ decision }}**
+# 8. Final Security Verdict
 
-              ---
+**{{ decision }}**
 
-              # 9. Appendix
+---
 
-              All raw scan artifacts retained within CI/CD pipeline for compliance and audit purposes.
-              \"\"\")
+# 9. Appendix
 
-              report=template.render(
-                  date=str(datetime.date.today()),
-                  crit=severity["CRITICAL"],
-                  high=severity["HIGH"],
-                  med=severity["MEDIUM"],
-                  low=severity["LOW"],
-                  info=severity["INFO"],
-                  total=total,
-                  risk=risk,
-                  decision=decision,
-                  gitleaks=len(tools["Gitleaks"]),
-                  trivy=len(tools["Trivy"]),
-                  semgrep=len(tools["Semgrep"]),
-                  zap=len(tools["ZAP"])
-              )
+All raw scan artifacts retained within CI/CD pipeline for compliance and audit purposes.
+""")
 
-              with open(OUTPUT_FILE,"w") as f:
-                  f.write(report)
+report=template.render(
+    date=str(datetime.date.today()),
+    crit=severity["CRITICAL"],
+    high=severity["HIGH"],
+    med=severity["MEDIUM"],
+    low=severity["LOW"],
+    info=severity["INFO"],
+    total=total,
+    risk=risk,
+    decision=decision,
+    gitleaks=len(tools["Gitleaks"]),
+    trivy=len(tools["Trivy"]),
+    semgrep=len(tools["Semgrep"]),
+    zap=len(tools["ZAP"])
+)
 
-              print("Enterprise Final Security Report generated →", OUTPUT_FILE)
-              PYEOF
-            '''
+with open(OUTPUT_FILE,"w") as f:
+    f.write(report)
+
+print("Enterprise Final Security Report generated →", OUTPUT_FILE)
+PYEOF
+'''
 
             archiveArtifacts artifacts: 'final-report/**', allowEmptyArchive: true
             stash name: 'FINAL-ENTERPRISE-SECURITY-REPORT', includes: 'final-report/**', allowEmpty: true
