@@ -17,4 +17,4 @@ COPY . .
 EXPOSE 4000
 
 # Run app
-CMD ["sh", "-c", "npm run setup && npm run dev"]
+CMD ["sh", "-c", "npm run setup && npm start"]
