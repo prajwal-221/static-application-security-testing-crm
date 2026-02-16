@@ -275,14 +275,17 @@ pipeline {
             // Health Check
             // =====================================================
             sh '''
+              echo "Waiting for backend container to initialize..."
+              sleep 10
+
               echo "Waiting for backend to become healthy..."
 
-              for i in $(seq 1 60); do
+              for i in $(seq 1 90); do
                 if curl -sf http://localhost:4000/public/health > /dev/null; then
                   echo "Backend is healthy"
                   exit 0
                 fi
-                echo "Retry $i/60 - backend not ready yet"
+                echo "Retry $i/90 - backend not ready yet"
                 sleep 5
               done
 
