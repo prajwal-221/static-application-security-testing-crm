@@ -281,7 +281,7 @@ pipeline {
               echo "Waiting for backend to become healthy..."
 
               for i in $(seq 1 90); do
-                if curl -sf http://localhost:4000/public/health > /dev/null; then
+                if docker exec idurar-backend wget -qO- http://localhost:4000/public/health > /dev/null; then
                   echo "Backend is healthy"
                   exit 0
                 fi
