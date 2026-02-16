@@ -247,7 +247,7 @@ pipeline {
             '''
 
             // =====================================================
-            // Docker Status Snapshot (NEW)
+            // Docker Status 
             // =====================================================
             sh '''
               echo "===== Docker Containers ====="
@@ -258,7 +258,7 @@ pipeline {
             '''
 
             // =====================================================
-            // Container Logs Snapshot (NEW)
+            // Container Logs
             // =====================================================
             sh '''
               echo "===== MongoDB Logs ====="
@@ -272,7 +272,7 @@ pipeline {
             '''
 
             // =====================================================
-            // Enhanced Health Check (UPDATED)
+            // Health Check
             // =====================================================
             sh '''
               echo "Waiting for backend to become healthy..."
@@ -297,6 +297,7 @@ pipeline {
             // =====================================================
             sh '''
               mkdir -p security-reports/runtime
+              chmod -R 777 security-reports
 
               docker run --rm \
                 -u root \
@@ -322,7 +323,7 @@ pipeline {
             '''
 
             // =====================================================
-            // ZAP Baseline (with chmod fix)
+            // ZAP Baseline 
             // =====================================================
             sh '''
               mkdir -p security-reports/zap-baseline
@@ -338,8 +339,9 @@ pipeline {
                 -r zap-baseline.html \
                 -x zap-baseline.xml || true
             '''
-
-            // ZAP Active (dynamic network)
+            // =====================================================
+            // ZAP Active Scan (dynamic network)
+            // =====================================================
             sh '''
               set -e
               mkdir -p security-reports/zap-active
@@ -356,7 +358,9 @@ pipeline {
                 -x zap-active.xml || true
             '''
 
-            // ZAP Auth
+            // =====================================================
+            // ZAP Authenticated Scan
+            // =====================================================
             withCredentials([string(credentialsId: 'JWT_TOKEN', variable: 'JWT_TOKEN')]) {
               sh '''
                 set -e
