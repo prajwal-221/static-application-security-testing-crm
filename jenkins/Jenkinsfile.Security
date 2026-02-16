@@ -300,29 +300,32 @@ pipeline {
             // =====================================================
             sh '''
               mkdir -p security-reports/runtime
+              mkdir -p .trivy-cache
               chmod -R 777 security-reports
 
+              # Backend Scan
               docker run --rm \
                 -u root \
                 -v /var/run/docker.sock:/var/run/docker.sock \
-                -v "$PWD:/out" \
+                -v "$PWD/security-reports/runtime:/out" \
                 -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
                 aquasec/trivy:latest \
                 image idurar-backend:latest \
                 --cache-dir /tmp/trivy-cache \
                 --format json \
-                -o /out/security-reports/runtime/trivy-runtime-backend.json || true
+                -o /out/trivy-runtime-backend.json || true
 
+              # Frontend Scan
               docker run --rm \
                 -u root \
                 -v /var/run/docker.sock:/var/run/docker.sock \
-                -v "$PWD:/out" \
+                -v "$PWD/security-reports/runtime:/out" \
                 -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
                 aquasec/trivy:latest \
                 image idurar-frontend:latest \
                 --cache-dir /tmp/trivy-cache \
                 --format json \
-                -o /out/security-reports/runtime/trivy-runtime-frontend.json || true
+                -o /out/trivy-runtime-frontend.json || true
             '''
 
             // =====================================================
