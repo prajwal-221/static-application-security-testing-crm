@@ -1,5 +1,65 @@
-# 
+# name: idurar-ci
+# version: '3.8'
 
+# services:
+
+#   mongodb:
+#     image: mongo:6.0
+#     container_name: idurar-mongodb
+#     environment:
+#       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
+#       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
+#       MONGO_INITDB_DATABASE: admin
+#     command: mongod --bind_ip_all --auth
+#     volumes:
+#       - mongodb_data:/data/db
+#       - ./mongodb/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+#     ports:
+#       - "27017:27017"
+#     networks:
+#       - idurar-network
+
+#   backend:
+#     image: idurar-backend:latest
+#     build:
+#       context: ./backend
+#       dockerfile: Dockerfile
+#     container_name: idurar-backend
+#     environment:
+#       - NODE_ENV=${NODE_ENV}
+#       - PORT=${PORT}
+#       - DATABASE=${DATABASE}
+#       - JWT_SECRET=${JWT_SECRET}
+#     ports:
+#       - "4000:4000"
+#     depends_on:
+#       - mongodb
+#     networks:
+#       - idurar-network
+#     restart: unless-stopped
+
+#   frontend:
+#     image: idurar-frontend:latest
+#     build:
+#       context: ./frontend
+#       dockerfile: Dockerfile
+#       args:
+#         - VITE_BACKEND_SERVER=/
+#     container_name: idurar-frontend
+#     ports:
+#       - "3000:80"
+#     depends_on:
+#       - backend
+#     networks:
+#       - idurar-network
+#     restart: unless-stopped
+
+# networks:
+#   idurar-network:
+#     driver: bridge
+
+# volumes:
+#   mongodb_data:
 
 
 name: idurar-ci
@@ -9,11 +69,11 @@ services:
   mongodb:
     image: mongo:6.0
     container_name: idurar-mongodb
-    command: ["mongod", "--bind_ip_all"]
     environment:
       MONGO_INITDB_ROOT_USERNAME: ${MONGO_INITDB_ROOT_USERNAME}
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
       MONGO_INITDB_DATABASE: admin
+    command: mongod --bind_ip_all
     volumes:
       - mongodb_data:/data/db
       - ./mongodb/init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
@@ -22,7 +82,12 @@ services:
     networks:
       - idurar-network
     healthcheck:
-      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      test: >
+        CMD-SHELL
+        mongosh -u "$MONGO_INITDB_ROOT_USERNAME"
+                -p "$MONGO_INITDB_ROOT_PASSWORD"
+                --authenticationDatabase admin
+                --eval "db.adminCommand('ping')" || exit 1
       interval: 5s
       timeout: 5s
       retries: 15
@@ -46,11 +111,6 @@ services:
     networks:
       - idurar-network
     restart: unless-stopped
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:4000/public/health"]
-      interval: 5s
-      timeout: 5s
-      retries: 15
 
   frontend:
     image: idurar-frontend:latest
