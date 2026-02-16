@@ -81,16 +81,6 @@ services:
       - "27017:27017"
     networks:
       - idurar-network
-    healthcheck:
-      test: >
-        CMD-SHELL
-        mongosh -u "$MONGO_INITDB_ROOT_USERNAME"
-                -p "$MONGO_INITDB_ROOT_PASSWORD"
-                --authenticationDatabase admin
-                --eval "db.adminCommand('ping')" || exit 1
-      interval: 5s
-      timeout: 5s
-      retries: 15
 
   backend:
     image: idurar-backend:latest
@@ -106,8 +96,7 @@ services:
     ports:
       - "4000:4000"
     depends_on:
-      mongodb:
-        condition: service_healthy
+      - mongodb
     networks:
       - idurar-network
     restart: unless-stopped

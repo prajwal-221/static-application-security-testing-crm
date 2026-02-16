@@ -278,15 +278,15 @@ pipeline {
               echo "Waiting for backend to become healthy..."
 
               for i in $(seq 1 60); do
-                if curl -sf http://localhost:4000/public/health; then
+                if curl -sf http://localhost:4000/public/health > /dev/null; then
                   echo "Backend is healthy"
                   exit 0
                 fi
-                echo "Retry $i/60 — backend not ready yet"
+                echo "Retry $i/60 - backend not ready yet"
                 sleep 5
               done
 
-              echo "Backend failed to start — dumping logs"
+              echo "Backend failed to start - dumping logs"
               docker logs idurar-backend --tail=200 || true
               docker logs idurar-mongodb --tail=200 || true
               exit 1
