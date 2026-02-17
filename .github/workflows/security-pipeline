@@ -177,6 +177,26 @@ jobs:
             /project || true
 
 
+      ############################################################
+      # SCA-04 — Trivy SCA Gate
+      ############################################################
+      # - name: Enforce Trivy SCA Gate
+      #   run: |
+      #     # Strict for PR + Main
+      #     if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+      #       echo "Strict SCA mode — failing on CRITICAL vulnerabilities"
+      #       if jq -e '.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")' \
+      #         $SEC_REPORTS_DIR/trivy-fs.json; then
+      #         echo "❌ Critical dependency vulnerability detected"
+      #         exit 1
+      #       fi
+      #     fi
+      #
+      #     # Nightly advisory
+      #     if [[ "${{ github.event_name }}" == "schedule" ]]; then
+      #       echo "Nightly advisory mode — not blocking"
+      #     fi
+
 
 
       ############################################################
