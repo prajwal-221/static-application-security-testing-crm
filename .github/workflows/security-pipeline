@@ -164,6 +164,19 @@ jobs:
       #     fi
 
 
+      ############################################################
+      # SCA-03 — License Scanning (ScanCode Toolkit)
+      ############################################################
+      - name: Run License Scan (ScanCode)
+        run: |
+          docker run --rm \
+            -v "$PWD:/project" \
+            ghcr.io/aboutcode-org/scancode-toolkit:latest \
+            --license \
+            --json /project/$SEC_REPORTS_DIR/license-scan.json \
+            /project || true
+
+
 
 
       ############################################################
