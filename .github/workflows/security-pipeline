@@ -1,10 +1,20 @@
 name: Enterprise DevSecOps Pipeline (Staging)
 
+# Updated Workflow Trigger Configuration
 on:
-  push:
-    branches: [staging]
   pull_request:
-    branches: [staging]
+    branches:
+      - main
+      - staging
+
+  push:
+    branches:
+      - main
+      - staging
+
+  schedule:
+    - cron: "0 2 * * *"   # Nightly scan at 2 AM UTC
+
   workflow_dispatch:
 
 env:
@@ -12,6 +22,8 @@ env:
   SEC_REPORTS_DIR: security-reports
   COMPOSE_PROJECT_NAME: idurar-ci
   DOCKER_BUILDKIT: 1
+  # Added PIPELINE_MODE variable
+  PIPELINE_MODE: ${{ github.event_name }}
 
 ############################################################
 # STAGE 1 — Secrets + Dependency Scanning (SCA)
@@ -21,6 +33,8 @@ jobs:
     name: Secrets + SCA Scan
     runs-on: ubuntu-latest
     continue-on-error: true
+    # Conditional execution for secrets_and_sca job
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.event_name == 'schedule'
 
     steps:
       - uses: actions/checkout@v4
@@ -50,9 +64,22 @@ jobs:
       ############################################################
       # - name: Enforce Secret Gate
       #   run: |
-      #     if jq -e '. | length > 0' $SEC_REPORTS_DIR/gitleaks.json; then
-      #       echo "❌ Secrets detected — blocking pipeline"
-      #       exit 1
+      #     # Conditional Gates
+      #     # PR + Main (Strict Gate)
+      #     if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+      #       echo "Strict mode — failing on SECRETS DETECTED"
+      #       if jq -e '. | length > 0' $SEC_REPORTS_DIR/gitleaks.json; then
+      #         echo "❌ Secrets detected — blocking pipeline"
+      #         exit 1
+      #       fi
+      #     fi
+          
+      #     # Nightly (Advisory Mode)
+      #     if [[ "${{ github.event_name }}" == "schedule" ]]; then
+      #       echo "Nightly mode — secrets check in advisory mode only"
+      #       if jq -e '. | length > 0' $SEC_REPORTS_DIR/gitleaks.json; then
+      #         echo "⚠️  Secrets detected (nightly scan) - not blocking pipeline"
+      #       fi
       #     fi
 
       ############################################################
@@ -76,10 +103,25 @@ jobs:
       ############################################################
       # - name: Enforce SCA Gate
       #   run: |
-      #     if jq -e '.Results[].Vulnerabilities[] | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
-      #       $SEC_REPORTS_DIR/trivy-fs.json; then
-      #       exit 1
-      #     fi            
+      #     # Conditional Gates
+      #     # PR + Main (Strict Gate)
+      #     if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+      #       echo "Strict mode — failing on HIGH/CRITICAL vulnerabilities"
+      #       if jq -e '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
+      #         $SEC_REPORTS_DIR/trivy-fs.json; then
+      #         echo "❌ High/Critical vulnerabilities found — blocking pipeline"
+      #         exit 1
+      #       fi
+      #     fi
+          
+      #     # Nightly (Advisory Mode)
+      #     if [[ "${{ github.event_name }}" == "schedule" ]]; then
+      #       echo "Nightly mode — SCA check in advisory mode only"
+      #       if jq -e '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
+      #         $SEC_REPORTS_DIR/trivy-fs.json; then
+      #         echo "⚠️  High/Critical vulnerabilities found (nightly scan) - not blocking pipeline"
+      #       fi
+      #     fi
 
       ############################################################
       # Verify Reports Generated (Best Practice)
@@ -138,6 +180,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: secrets_and_sca
     continue-on-error: true
+    # Conditional execution for sast job
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.event_name == 'schedule'
 
     steps:
       - uses: actions/checkout@v4
@@ -198,6 +242,8 @@ jobs:
     runs-on: ubuntu-latest
     needs: sast
     continue-on-error: true
+    # Conditional execution for docker_security job
+    if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
 
     steps:
       - uses: actions/checkout@v4
@@ -320,7 +366,7 @@ jobs:
       ############################################################
       # - name: Enforce Image Gate
       #   run: |
-      #     if jq -e '.Results[].Vulnerabilities[] | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
+      #     if jq -e '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
       #       $SEC_REPORTS_DIR/trivy-image-backend.json; then
       #       exit 1
       #     fi
@@ -352,7 +398,7 @@ jobs:
       ############################################################
       # - name: Enforce Runtime Gate
       #   run: |
-      #     if jq -e '.Results[].Misconfigurations[] | select(.Severity=="CRITICAL")' \
+      #     if jq -e '.Results[]?.Misconfigurations[]? | select(.Severity=="CRITICAL")' \
       #       $SEC_REPORTS_DIR/trivy-runtime-backend.json; then
       #       exit 1
       #     fi
@@ -427,7 +473,7 @@ jobs:
                  -config replacer.full_list(0).enabled=true \
                  -config replacer.full_list(0).matchtype=REQ_HEADER \
                  -config replacer.full_list(0).matchstr=Authorization \
-                 -config replacer.full_list(0).replacement=Bearer $JWT_TOKEN" \
+                 -config replacer.full_list(0).replacement=Bearer ${{ secrets.JWT_TOKEN }}" \
             -r zap-auth.html \
             -x zap-auth.xml || true
 
@@ -522,6 +568,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: normalize_reports
     continue-on-error: true
+    if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
 
     steps:
       - name: Download Normalized Reports
@@ -590,6 +637,8 @@ jobs:
       - normalize_reports
       - defectdojo_upload
     continue-on-error: true
+    #Conditional execution for validation_pipeline job
+    if: github.event_name == 'schedule'
 
     steps:
       - name: Run Mutillidae Vulnerable App
@@ -631,6 +680,8 @@ jobs:
       - normalize_reports
       - defectdojo_upload
       - validation_pipeline
+    # Conditional execution for pipeline_documentation job
+    if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
 
     steps:
       - name: Create Documentation
@@ -670,6 +721,8 @@ jobs:
       - defectdojo_upload
       - validation_pipeline
       - pipeline_documentation
+    # Conditional execution for final_security_report job
+    if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
 
     steps:
       ############################################################
@@ -981,88 +1034,6 @@ jobs:
           path: final-report/
 
 
-# ############################################################
-# # STAGE 12 — DefectDojo Enterprise Intelligence Upload (FINAL FIX)
-# ############################################################
-#   defectdojo_enterprise_intelligence:
-#     name: DefectDojo Enterprise Intelligence Upload
-#     runs-on: ubuntu-latest
-#     needs: final_security_report
-#     continue-on-error: true
-
-#     steps:
-#       ############################################################
-#       # Download Final Security Report
-#       ############################################################
-#       - name: Download Final Security Report
-#         uses: actions/download-artifact@v4
-#         with:
-#           name: FINAL-ENTERPRISE-SECURITY-REPORT
-#           path: final-report
-
-#       ############################################################
-#       # Upload Full Final Report (Attachment)
-#       ############################################################
-#       - name: Upload Full Final Report to DefectDojo
-#         shell: bash
-#         run: |
-#           set -e
-
-#           echo "Uploading full enterprise report to DefectDojo..."
-
-#           curl -s -X POST "https://demo.defectdojo.org/api/v2/files/" \
-#             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-#             -F "file=@final-report/final-security-report.md" \
-#             -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}" \
-#             -F "title=Enterprise Final Security Report" \
-#             -F "description=Automated CI/CD generated enterprise security report"
-
-#       ############################################################
-#       # Upload Executive Summary
-#       ############################################################
-#       - name: Upload Executive Summary
-#         shell: bash
-#         run: |
-#           set -e
-
-#           SUMMARY=$(sed -n '/# 1. Executive Summary/,/# 2./p' final-report/final-security-report.md)
-
-#           curl -s -X POST "https://demo.defectdojo.org/api/v2/notes/" \
-#             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-#             -F "entry=$SUMMARY" \
-#             -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
-
-#       ############################################################
-#       # Upload Remediation Roadmap
-#       ############################################################
-#       - name: Upload Remediation Roadmap
-#         shell: bash
-#         run: |
-#           set -e
-
-#           ROADMAP=$(sed -n '/# 5. Security Recommendations Roadmap/,/# 6./p' final-report/final-security-report.md)
-
-#           curl -s -X POST "https://demo.defectdojo.org/api/v2/notes/" \
-#             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-#             -F "entry=$ROADMAP" \
-#             -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
-
-#       ############################################################
-#       # Upload Final Security Verdict
-#       ############################################################
-#       - name: Upload Final Security Verdict
-#         shell: bash
-#         run: |
-#           set -e
-
-#           VERDICT=$(sed -n '/# 8. Final Security Verdict/,/# 9./p' final-report/final-security-report.md)
-
-#           curl -s -X POST "https://demo.defectdojo.org/api/v2/notes/" \
-#             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-#             -F "entry=$VERDICT" \
-#             -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
-
-
 ############################################################
 # STAGE 12 — DefectDojo Enterprise Upload 
 ############################################################
@@ -1070,6 +1041,8 @@ jobs:
     name: DefectDojo Enterprise Report Upload
     runs-on: ubuntu-latest
     needs: final_security_report
+    # Conditional execution for defectdojo_enterprise_intelligence job
+    if: github.ref == 'refs/heads/main' || github.event_name == 'schedule'
     continue-on-error: true
 
     steps:
