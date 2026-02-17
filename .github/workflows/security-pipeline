@@ -291,6 +291,27 @@ jobs:
             . || true
 
       ############################################################
+      # SAST-02 — NodeJsScan (OWASP Node.js Patterns)
+      ############################################################
+      - name: Install NodeJsScan
+        run: |
+          pip install nodejsscan
+
+      - name: Run NodeJsScan (Backend)
+        run: |
+          mkdir -p security-reports/nodejsscan
+          nodejsscan backend \
+            --json \
+            > security-reports/nodejsscan/nodejsscan-backend.json || true
+
+      - name: Upload NodeJsScan Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejsscan-report
+          path: security-reports/nodejsscan/
+
+
+      ############################################################
       # SAST GATE
       ############################################################
       # - name: Enforce SAST Gate
