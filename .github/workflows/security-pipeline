@@ -124,6 +124,49 @@ jobs:
       #     fi
 
       ############################################################
+      # SCA-02 — npm audit baseline (Quick Signal)
+      ############################################################
+      - name: Setup Node for npm audit
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Backend Dependencies
+        run: |
+          cd backend
+          npm ci || true
+
+      - name: Run npm audit (Backend)
+        run: |
+          cd backend
+          npm audit --json > ../$SEC_REPORTS_DIR/npm-audit-backend.json || true
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci || true
+
+      - name: Run npm audit (Frontend)
+        run: |
+          cd frontend
+          npm audit --json > ../$SEC_REPORTS_DIR/npm-audit-frontend.json || true
+
+
+      ############################################################
+      # SCA-02 Gate 
+      ############################################################
+      # - name: Enforce npm audit Gate
+      #   run: |
+      #     if jq -e '.metadata.vulnerabilities.critical > 0' \
+      #       $SEC_REPORTS_DIR/npm-audit-backend.json; then
+      #       echo "Critical npm vulnerability detected"
+      #       exit 1
+      #     fi
+
+
+
+
+      ############################################################
       # Verify Reports Generated (Best Practice)
       ############################################################
       - name: Verify Reports Generated
