@@ -710,6 +710,7 @@ jobs:
                       tools["Semgrep"].append(r.get("check_id","UNKNOWN"))
               except: pass
 
+              
           def parse_gitleaks(file):
               try:
                   data = json.load(open(file))
