@@ -1,0 +1,42 @@
+rules:
+  ############################################################
+  # JWT Misuse — decode without verify
+  ############################################################
+  - id: jwt-decode-without-verify
+    patterns:
+      - pattern: jwt.decode($TOKEN)
+    message: "JWT decoded without verification. Use jwt.verify()."
+    languages: [javascript, typescript]
+    severity: HIGH
+
+  ############################################################
+  # Unsafe child_process usage
+  ############################################################
+  - id: child-process-exec-usage
+    patterns:
+      - pattern-either:
+          - pattern: child_process.exec($CMD)
+          - pattern: exec($CMD)
+    message: "Avoid exec(). Possible command injection risk."
+    languages: [javascript, typescript]
+    severity: CRITICAL
+
+  ############################################################
+  # Direct SQL string concatenation
+  ############################################################
+  - id: sql-string-concatenation
+    patterns:
+      - pattern: $DB.query("..." + $VAR + "...")
+    message: "SQL built via string concatenation. Use parameterized queries."
+    languages: [javascript, typescript]
+    severity: HIGH
+
+  ############################################################
+  # Unsafe file upload path
+  ############################################################
+  - id: unsafe-file-upload-path
+    patterns:
+      - pattern: fs.writeFile($USER_INPUT, ...)
+    message: "User-controlled file path detected. Validate and sanitize."
+    languages: [javascript, typescript]
+    severity: HIGH

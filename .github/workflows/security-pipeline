@@ -286,6 +286,7 @@ jobs:
           mkdir -p security-reports/semgrep
           semgrep scan \
             --config=auto \
+            --config=semgrep-rules/ \
             --json \
             --output security-reports/semgrep/semgrep.json \
             . || true
