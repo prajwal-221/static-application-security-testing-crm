@@ -677,7 +677,7 @@ jobs:
           from collections import defaultdict
           from jinja2 import Template
 
-          REPORT_ROOT = "all-reports/normalized-reports"
+          REPORT_ROOT = "all-reports"
           OUTPUT_FILE = "final-report/final-security-report.md"
 
           severity = defaultdict(int)
@@ -712,28 +712,25 @@ jobs:
 
           def parse_gitleaks(file):
               try:
-                  with open(file, "r") as fh:
-                      data = json.load(fh)
+                  data = json.load(open(file))
+
+                  findings = data.get("findings", [])
 
                   seen = set()
 
-                  for f in data:
-                      # Stable fingerprint for one logical secret
+                  for f in findings:
                       fingerprint = (
-                          f.get("RuleID"),
-                          f.get("File"),
-                          f.get("StartLine"),
-                          f.get("Commit")
-                      )
+                            f.get("title"),
+                            f.get("file_path"),
+                            f.get("line")
+                        )
 
                       if fingerprint in seen:
-                          continue
+                            continue
 
                       seen.add(fingerprint)
                       severity["HIGH"] += 1
-                      tools["Gitleaks"].append(
-                          f.get("Description", "Hardcoded Secret")
-                      )
+                      tools["Gitleaks"].append(f.get("title"))
 
               except Exception as e:
                   print(f"Gitleaks parse error in {file}: {e}")
