@@ -677,7 +677,7 @@ jobs:
           from collections import defaultdict
           from jinja2 import Template
 
-          REPORT_ROOT = "all-reports"
+          REPORT_ROOT = "all-reports/normalized-reports"
           OUTPUT_FILE = "final-report/final-security-report.md"
 
           severity = defaultdict(int)
