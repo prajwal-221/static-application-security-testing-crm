@@ -397,20 +397,6 @@ jobs:
             sleep 2
           done
 
-          # Generate a valid JWT token for authentication
-          JWT_TOKEN=$(curl -s -X POST http://idurar-backend:4000/api/login \
-            -H "Content-Type: application/json" \
-            -d '{"email":"admin@admin.com","password":"admin123"}' | \
-            jq -r '.result.token // empty')
-
-          if [ -z "$JWT_TOKEN" ]; then
-            echo "Warning: Could not obtain JWT token, proceeding with unauthenticated scan"
-            JWT_TOKEN="dummy-token"
-          fi
-
-                    # Set Authorization header directly for all requests
-          AUTH_HEADER="Authorization: Bearer $JWT_TOKEN"
-
           docker run --rm \
             -u root \
             --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
@@ -418,6 +404,9 @@ jobs:
             --entrypoint /bin/bash \
             zaproxy/zap-stable \
             -c "
+              # Install jq for JSON parsing
+              apt-get update && apt-get install -y jq curl
+
               # Generate JWT token from within the container
               JWT_TOKEN=\$(curl -s -X POST http://idurar-backend:4000/api/login \
                 -H 'Content-Type: application/json' \
@@ -429,10 +418,8 @@ jobs:
                 JWT_TOKEN='dummy-token'
               fi
 
-              # Set Authorization header directly for all requests
               AUTH_HEADER=\"Authorization: Bearer \$JWT_TOKEN\"
 
-              # Run ZAP scan with authentication
               zap-full-scan.py \
                 -t http://idurar-backend:4000 \
                 -t http://idurar-backend:4000/api/client/create \
