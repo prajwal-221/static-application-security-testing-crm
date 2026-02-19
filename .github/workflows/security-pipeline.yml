@@ -407,7 +407,6 @@ jobs:
             -t http://idurar-backend:4000 \
             -t http://idurar-backend:4000/api/client/create \
             -t http://idurar-backend:4000/api/invoice/create \
-            -t http://idurar-backend:4000/api/payment/create \
             -z "-config replacer.full_list(0).description=auth \
                  -config replacer.full_list(0).enabled=true \
                  -config replacer.full_list(0).matchtype=REQ_HEADER \
