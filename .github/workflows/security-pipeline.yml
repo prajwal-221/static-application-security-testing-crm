@@ -716,8 +716,8 @@ jobs:
                       if "findings" in data:
                           findings = data["findings"]
                       # Legacy format: direct array of findings
-                      elif len(data) > 0 and any(k in data.get(next(iter(data.keys())), {}) for k in ["title", "rule", "file"]):
-                          findings = [data] if "title" in data or "rule" in data else []
+                      elif len(data) > 0 and any(k in data.get(next(iter(data.keys())), {}) for k in ["RuleID", "Description", "File"]):
+                          findings = [data] if "RuleID" in data or "Description" in data else []
                   elif isinstance(data, list):
                       # Direct array format
                       findings = data
@@ -726,9 +726,9 @@ jobs:
 
                   for f in findings:
                       # Create a more robust fingerprint for deduplication
-                      title = f.get("title", f.get("rule", ""))
-                      file_path = f.get("file", f.get("file_path", ""))
-                      line = str(f.get("startLine", f.get("line", "")))
+                      title = f.get("Description", f.get("RuleID", f.get("title", f.get("rule", "")))
+                      file_path = f.get("File", f.get("file", f.get("file_path", "")))
+                      line = str(f.get("StartLine", f.get("startLine", f.get("line", ""))))
                       
                       # Normalize the fingerprint
                       fingerprint = (title.strip(), file_path.strip(), line.strip())
