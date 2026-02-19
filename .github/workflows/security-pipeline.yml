@@ -413,22 +413,38 @@ jobs:
 
           docker run --rm \
             -u root \
-            -e JWT_TOKEN="$JWT_TOKEN" \
-            -e AUTH_HEADER="$AUTH_HEADER" \
             --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
             -v "$PWD/security-reports/zap-auth:/zap/wrk" \
+            --entrypoint /bin/bash \
             zaproxy/zap-stable \
-            zap-full-scan.py \
-            -t http://idurar-backend:4000 \
-            -t http://idurar-backend:4000/api/client/create \
-            -z "-config replacer.full_list(0).description=JWT-Auth" \
-            -z "-config replacer.full_list(0).enabled=true" \
-            -z "-config replacer.full_list(0).matchtype=REQ_HEADER" \
-            -z "-config replacer.full_list(0).matchstr=^$" \
-            -z "-config replacer.full_list(0).replacement=$AUTH_HEADER" \
-            -z "-config replacer.full_list(0).matchregex=true" \
-            -r zap-auth.html \
-            -x zap-auth.xml || true
+            -c "
+              # Generate JWT token from within the container
+              JWT_TOKEN=\$(curl -s -X POST http://idurar-backend:4000/api/login \
+                -H 'Content-Type: application/json' \
+                -d '{\"email\":\"admin@admin.com\",\"password\":\"admin123\"}' | \
+                jq -r '.result.token // empty')
+
+              if [ -z \"\$JWT_TOKEN\" ]; then
+                echo 'Warning: Could not obtain JWT token, proceeding with unauthenticated scan'
+                JWT_TOKEN='dummy-token'
+              fi
+
+              # Set Authorization header directly for all requests
+              AUTH_HEADER=\"Authorization: Bearer \$JWT_TOKEN\"
+
+              # Run ZAP scan with authentication
+              zap-full-scan.py \
+                -t http://idurar-backend:4000 \
+                -t http://idurar-backend:4000/api/client/create \
+                -z \"-config replacer.full_list(0).description=JWT-Auth\" \
+                -z \"-config replacer.full_list(0).enabled=true\" \
+                -z \"-config replacer.full_list(0).matchtype=REQ_HEADER\" \
+                -z \"-config replacer.full_list(0).matchstr=^$\" \
+                -z \"-config replacer.full_list(0).replacement=\$AUTH_HEADER\" \
+                -z \"-config replacer.full_list(0).matchregex=true\" \
+                -r zap-auth.html \
+                -x zap-auth.xml || true
+            "
 
       # ZAP Authenticated Scan Gate
       # - name: Enforce ZAP Auth Gate
