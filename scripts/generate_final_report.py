@@ -66,7 +66,7 @@ def parse_gitleaks(file):
             if "findings" in data:
                 findings = data["findings"]
             # Legacy format: direct array of findings
-            elif len(data) > 0 and any(k in data.get(next(iter(data.keys())), {})) for k in ["RuleID", "Description", "File"]:
+            elif len(data) > 0 and any(k in data.get(next(iter(data.keys())), {}) for k in ["RuleID", "Description", "File"]):
                 findings = [data] if "RuleID" in data or "Description" in data else []
         elif isinstance(data, list):
             # Direct array format
