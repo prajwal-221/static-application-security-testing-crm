@@ -1,4 +1,4 @@
-name: Enterprise DevSecOps Pipeline (Staging)
+name: DevSecOps Pipeline (Staging)
 
 on:
   push:
@@ -426,42 +426,18 @@ jobs:
         run: docker compose --env-file .env down -v --remove-orphans
 
 
+
+
 ############################################################
-# STAGE 4 — Final Aggregated Report
+# STAGE 4 — Normalize Reports (Python Engine)
 ############################################################
-  final_report:
-    name: Final Security Report Bundle
+  normalize_reports:
+    name: Normalize Security Reports
     runs-on: ubuntu-latest
     needs:
       - secrets_and_sca
       - sast
       - docker_security
-
-    steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: reports
-
-      - name: Create Report Index
-        run: |
-          echo "Enterprise DevSecOps Security Reports" > reports/README.txt
-          echo "====================================" >> reports/README.txt
-          find reports -type f >> reports/README.txt
-
-      - name: Upload Final Report Bundle
-        uses: actions/upload-artifact@v4
-        with:
-          name: FINAL-SECURITY-REPORTS
-          path: reports
-
-
-############################################################
-# STAGE 7 — Normalize Reports (Python Engine)
-############################################################
-  normalize_reports:
-    name: Normalize Security Reports
-    runs-on: ubuntu-latest
-    needs: final_report
 
     steps:
     - uses: actions/checkout@v4
@@ -488,7 +464,7 @@ jobs:
         path: normalized-reports/
 
 ############################################################
-# STAGE 8 — Upload Reports to Public DefectDojo (Correct)
+# STAGE 5 — Upload Reports to Public DefectDojo (Correct)
 ############################################################
   defectdojo_upload:
     name: Upload Reports to DefectDojo (Public)
@@ -553,7 +529,7 @@ jobs:
 
 
 ############################################################
-# STAGE 9 — Validation Pipeline using Mutillidae (Task 23)
+# STAGE 6 — Validation Pipeline using Mutillidae (Task 23)
 ############################################################
   validation_pipeline:
     name: Pipeline Validation using Mutillidae
@@ -594,7 +570,7 @@ jobs:
 
 
 ############################################################
-# STAGE 10 — Documentation Artifact (Task 24)
+# STAGE 7 — Documentation Artifact (Task 24)
 ############################################################
   pipeline_documentation:
     name: Generate Pipeline Documentation
@@ -610,7 +586,7 @@ jobs:
         run: |
           mkdir -p documentation
           cat <<EOF > documentation/pipeline-blueprint.md
-          # Enterprise DevSecOps Pipeline Blueprint
+          # DevSecOps Pipeline Blueprint
 
           ## Stages:
           - Secrets Scan
@@ -632,10 +608,10 @@ jobs:
 
 
 ############################################################
-# STAGE 11 — Final Security Report Generator
+# STAGE 8 — Final Security Report Generator
 ############################################################
   final_security_report:
-    name: Generate Final Enterprise Security Report
+    name: Generate Final Security Report
     runs-on: ubuntu-latest
     needs:
       - docker_security
@@ -669,7 +645,7 @@ jobs:
           pip install jinja2 rich
 
       ############################################################
-      # Generate Final Enterprise Security Report
+      # Generate Final Security Report
       ############################################################
       - name: Generate Final Security Report
         run: |
@@ -685,6 +661,9 @@ jobs:
 
           severity = defaultdict(int)
           tools = defaultdict(list)
+          
+          # Global tracking for gitleaks deduplication across multiple files
+          global_gitleaks_seen = set()
 
           def normalize(sev):
               sev = sev.upper()
@@ -717,27 +696,47 @@ jobs:
           def parse_gitleaks(file):
               try:
                   data = json.load(open(file))
+                  
+                  # Gitleaks v8+ uses different structure - handle both old and new formats
+                  findings = []
+                  
+                  if isinstance(data, dict):
+                      # New format: {"findings": [...], "summary": {...}}
+                      if "findings" in data:
+                          findings = data["findings"]
+                      # Legacy format: direct array of findings
+                      elif len(data) > 0 and any(k in data.get(next(iter(data.keys())), {}) for k in ["title", "rule", "file"]):
+                          findings = [data] if "title" in data or "rule" in data else []
+                  elif isinstance(data, list):
+                      # Direct array format
+                      findings = data
 
-                  findings = data.get("findings", [])
-
-                  seen = set()
+                  unique_count = 0
 
                   for f in findings:
-                      fingerprint = (
-                            f.get("title"),
-                            f.get("file_path"),
-                            f.get("line")
-                        )
+                      # Create a more robust fingerprint for deduplication
+                      title = f.get("title", f.get("rule", ""))
+                      file_path = f.get("file", f.get("file_path", ""))
+                      line = str(f.get("startLine", f.get("line", "")))
+                      
+                      # Normalize the fingerprint
+                      fingerprint = (title.strip(), file_path.strip(), line.strip())
 
-                      if fingerprint in seen:
-                            continue
+                      # Use global deduplication across all gitleaks files
+                      if fingerprint in global_gitleaks_seen:
+                          continue
 
-                      seen.add(fingerprint)
+                      global_gitleaks_seen.add(fingerprint)
+                      unique_count += 1
                       severity["HIGH"] += 1
-                      tools["Gitleaks"].append(f.get("title"))
+                      tools["Gitleaks"].append(title)
+
+                  print(f"Gitleaks processed {file}: {unique_count} unique secrets from {len(findings)} total findings")
 
               except Exception as e:
                   print(f"Gitleaks parse error in {file}: {e}")
+                  # If parsing fails, don't add any counts
+                  pass
 
           def parse_zap(file):
               try:
@@ -749,13 +748,19 @@ jobs:
                       tools["ZAP"].append(alert.findtext("name","Web Vulnerability"))
               except: pass
 
+          gitleaks_files_processed = 0
           for f in glob.glob(f"{REPORT_ROOT}/**/*", recursive=True):
               if f.endswith(".json"):
                   if "trivy" in f: parse_trivy(f)
                   elif "semgrep" in f: parse_semgrep(f)
-                  elif "gitleaks" in f: parse_gitleaks(f)
+                  elif "gitleaks" in f: 
+                      parse_gitleaks(f)
+                      gitleaks_files_processed += 1
               elif f.endswith(".xml") and "zap" in f:
                   parse_zap(f)
+
+          print(f"Processed {gitleaks_files_processed} gitleaks report files")
+          print(f"Total unique gitleaks findings: {len(tools['Gitleaks'])}")
 
           total=sum(severity.values())
 
@@ -769,11 +774,11 @@ jobs:
               decision="RELEASE BLOCKED — CRITICAL RISK PRESENT"
 
           template=Template("""
-          # Enterprise DevSecOps Final Security Report
+          # DevSecOps Final Security Report
 
           **Project:** IDURAR Platform  
           **Environment:** Staging  
-          **Pipeline:** Enterprise DevSecOps CI/CD  
+          **Pipeline:** DevSecOps CI/CD  
           **Date:** {{ date }}  
 
           ---
@@ -917,7 +922,7 @@ jobs:
 
           **Maturity Level:** Advanced  
 
-          CI/CD demonstrates high security automation, governance, and enterprise readiness.
+          CI/CD demonstrates high security automation, governance, and operational readiness.
 
           ---
 
@@ -959,106 +964,25 @@ jobs:
           with open(OUTPUT_FILE,"w") as f:
               f.write(report)
 
-          print("Enterprise Final Security Report generated →", OUTPUT_FILE)
+          echo "DevSecOps Security Reports" > reports/README.txt
+          print("Final Security Report generated →", OUTPUT_FILE)
           EOF
 
       ############################################################
-      # Upload Final Enterprise Security Report
+      # Upload Final Security Report
       ############################################################
       - name: Upload Final Security Report
         uses: actions/upload-artifact@v4
         with:
-          name: FINAL-ENTERPRISE-SECURITY-REPORT
+          name: FINAL-SECURITY-REPORT
           path: final-report/
 
 
-# ############################################################
-# # STAGE 12 — DefectDojo Enterprise Intelligence Upload (FINAL FIX)
-# ############################################################
-#   defectdojo_enterprise_intelligence:
-#     name: DefectDojo Enterprise Intelligence Upload
-#     runs-on: ubuntu-latest
-#     needs: final_security_report
-#     continue-on-error: true
-
-#     steps:
-#       ############################################################
-#       # Download Final Security Report
-#       ############################################################
-#       - name: Download Final Security Report
-#         uses: actions/download-artifact@v4
-#         with:
-#           name: FINAL-ENTERPRISE-SECURITY-REPORT
-#           path: final-report
-
-#       ############################################################
-#       # Upload Full Final Report (Attachment)
-#       ############################################################
-#       - name: Upload Full Final Report to DefectDojo
-#         shell: bash
-#         run: |
-#           set -e
-
-#           echo "Uploading full enterprise report to DefectDojo..."
-
-#           curl -s -X POST "https://demo.defectdojo.org/api/v2/files/" \
-#             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-#             -F "file=@final-report/final-security-report.md" \
-#             -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}" \
-#             -F "title=Enterprise Final Security Report" \
-#             -F "description=Automated CI/CD generated enterprise security report"
-
-#       ############################################################
-#       # Upload Executive Summary
-#       ############################################################
-#       - name: Upload Executive Summary
-#         shell: bash
-#         run: |
-#           set -e
-
-#           SUMMARY=$(sed -n '/# 1. Executive Summary/,/# 2./p' final-report/final-security-report.md)
-
-#           curl -s -X POST "https://demo.defectdojo.org/api/v2/notes/" \
-#             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-#             -F "entry=$SUMMARY" \
-#             -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
-
-#       ############################################################
-#       # Upload Remediation Roadmap
-#       ############################################################
-#       - name: Upload Remediation Roadmap
-#         shell: bash
-#         run: |
-#           set -e
-
-#           ROADMAP=$(sed -n '/# 5. Security Recommendations Roadmap/,/# 6./p' final-report/final-security-report.md)
-
-#           curl -s -X POST "https://demo.defectdojo.org/api/v2/notes/" \
-#             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-#             -F "entry=$ROADMAP" \
-#             -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
-
-#       ############################################################
-#       # Upload Final Security Verdict
-#       ############################################################
-#       - name: Upload Final Security Verdict
-#         shell: bash
-#         run: |
-#           set -e
-
-#           VERDICT=$(sed -n '/# 8. Final Security Verdict/,/# 9./p' final-report/final-security-report.md)
-
-#           curl -s -X POST "https://demo.defectdojo.org/api/v2/notes/" \
-#             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
-#             -F "entry=$VERDICT" \
-#             -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}"
-
-
 ############################################################
-# STAGE 12 — DefectDojo Enterprise Upload 
+# STAGE 9 — DefectDojo Upload 
 ############################################################
-  defectdojo_enterprise_intelligence:
-    name: DefectDojo Enterprise Report Upload
+  defectdojo:
+    name: DefectDojo Report Upload
     runs-on: ubuntu-latest
     needs: final_security_report
     continue-on-error: true
@@ -1070,7 +994,7 @@ jobs:
       - name: Download Final Security Report
         uses: actions/download-artifact@v4
         with:
-          name: FINAL-ENTERPRISE-SECURITY-REPORT
+          name: FINAL-SECURITY-REPORT
           path: final-report
 
       ############################################################
@@ -1081,7 +1005,7 @@ jobs:
         run: |
           set -e
 
-          echo "Uploading enterprise report to DefectDojo..."
+          echo "Uploading report to DefectDojo..."
 
           curl -s -X POST "https://demo.defectdojo.org/api/v2/files/" \
             -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
