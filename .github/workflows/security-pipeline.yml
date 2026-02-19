@@ -386,6 +386,17 @@ jobs:
           mkdir -p security-reports/zap-auth
           chmod 777 security-reports/zap-auth
 
+          # Wait for backend to be ready (quick check since global health check already passed)
+          echo "Quick backend readiness check..."
+          for i in {1..10}; do
+            if curl -s -f http://idurar-backend:4000/api/client > /dev/null 2>&1; then
+              echo "Backend is ready!"
+              break
+            fi
+            echo "Waiting... ($i/10)"
+            sleep 2
+          done
+
           # Generate a valid JWT token for authentication
           JWT_TOKEN=$(curl -s -X POST http://idurar-backend:4000/api/login \
             -H "Content-Type: application/json" \
