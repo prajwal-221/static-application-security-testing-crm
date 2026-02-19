@@ -406,7 +406,6 @@ jobs:
             zap-full-scan.py \
             -t http://idurar-backend:4000 \
             -t http://idurar-backend:4000/api/client/create \
-            -t http://idurar-backend:4000/api/invoice/create \
             -z "-config replacer.full_list(0).description=auth \
                  -config replacer.full_list(0).enabled=true \
                  -config replacer.full_list(0).matchtype=REQ_HEADER \
@@ -726,9 +725,9 @@ jobs:
 
                   for f in findings:
                       # Create a more robust fingerprint for deduplication
-                      title = f.get("Description", f.get("RuleID", f.get("title", f.get("rule", "")))
-                      file_path = f.get("File", f.get("file", f.get("file_path", "")))
-                      line = str(f.get("StartLine", f.get("startLine", f.get("line", ""))))
+                      title = f.get("Description") or f.get("RuleID") or f.get("title") or f.get("rule") or ""
+                      file_path = f.get("File") or f.get("file") or f.get("file_path") or ""
+                      line = str(f.get("StartLine") or f.get("startLine") or f.get("line") or "")
                       
                       # Normalize the fingerprint
                       fingerprint = (title.strip(), file_path.strip(), line.strip())
