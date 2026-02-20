@@ -353,6 +353,13 @@ jobs:
           password: ${{ secrets.DOCKER_TOKEN }}
 
       ############################################################
+      # SBOM Generation Tool — Syft
+      ############################################################
+      - name: Install Syft CLI
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      ############################################################
       # Secure .env Generation — FIXED
       ############################################################
       - name: Generate Secure .env
@@ -383,6 +390,31 @@ jobs:
       ############################################################
       - name: Build Docker Images
         run: docker compose --env-file .env build
+
+      - name: Prepare SBOM Output Directory
+        run: mkdir -p $SEC_REPORTS_DIR/sbom
+
+      ############################################################
+      # SBOM Generation — Syft
+      ############################################################
+      - name: Generate SBOM — Source Dependencies
+        run: |
+          syft dir:. \
+            --output json \
+            > $SEC_REPORTS_DIR/sbom/sbom-source-deps.json
+
+      - name: Generate SBOM — Backend Image
+        run: |
+          syft idurar-backend:latest \
+            --output json \
+            > $SEC_REPORTS_DIR/sbom/sbom-backend-image.json || true
+
+      - name: Generate SBOM — Frontend Image
+        run: |
+          syft idurar-frontend:latest \
+            --output json \
+            > $SEC_REPORTS_DIR/sbom/sbom-frontend-image.json || true
+
 
       ############################################################
       # Trivy Image Scan
