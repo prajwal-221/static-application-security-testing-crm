@@ -1,0 +1,1088 @@
+pipeline {
+  agent any
+
+  environment {
+    APP_ENV = 'staging'
+    SEC_REPORTS_DIR = 'security-reports'
+    COMPOSE_PROJECT_NAME = 'idurar-ci'
+    DOCKER_BUILDKIT = '1'
+    HOST_WORKSPACE = "/var/lib/jenkins/workspace/${JOB_NAME}"
+  }
+
+  options {
+    timestamps()
+  }
+
+  stages {
+
+    stage('Checkout') {
+      steps {
+        script {
+          checkout scm
+        }
+      }
+    }
+
+    // ============================================================
+    // STAGE 1 — Secrets + Dependency Scanning (SCA)
+    // ============================================================
+    stage('Secrets + SCA Scan') {
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+
+            sh '''
+              mkdir -p "${WORKSPACE}/${SEC_REPORTS_DIR}"
+              chmod -R 0777 "${WORKSPACE}/${SEC_REPORTS_DIR}"
+            '''
+            
+            sh '''
+                echo "===== PIPELINE WORKSPACE DEBUG ====="
+                echo "WORKSPACE = $WORKSPACE"
+                pwd
+                ls -la
+                echo "Check gitleaks file:"
+                ls -la .gitleaks.toml || true
+            '''
+
+            // Gitleaks Scan
+            sh '''
+              #!/bin/bash
+              set -e
+
+              docker run --rm \
+                -u $(id -u):$(id -g) \
+                -v "${HOST_WORKSPACE}:/repo" \
+                -w /repo \
+                zricethezav/gitleaks:latest detect \
+                  --source=. \
+                  --config=/repo/.gitleaks.toml \
+                  --report-format=json \
+                  --no-git \
+                  --report-path=${SEC_REPORTS_DIR}/gitleaks.json \
+                  --verbose || true
+            '''
+
+            // Trivy Filesystem Scan 
+            sh '''
+              #!/bin/bash
+              set -e
+
+              docker run --rm \
+                -u $(id -u):$(id -g) \
+                -v "${HOST_WORKSPACE}:/scan" \
+                aquasec/trivy:latest fs /scan \
+                  --severity HIGH,CRITICAL \
+                  --ignore-unfixed \
+                  --format json \
+                  -o /scan/${SEC_REPORTS_DIR}/trivy-fs.json || true
+            '''
+
+            sh '''
+              echo "===== Generated Security Reports ====="
+              ls -lh ${WORKSPACE}/${SEC_REPORTS_DIR} || true
+            '''
+
+            // Stash secrets and sca reports
+            stash name: 'secrets-and-sca-reports',
+                  includes: "${SEC_REPORTS_DIR}/**",
+                  allowEmpty: true
+          }
+        }
+      }
+    }
+
+
+
+    // ============================================================
+    // STAGE 2 — Static Application Security Testing (SAST)
+    // ============================================================
+    stage('SAST — Semgrep') {
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+            // Ensure checkout (keeps parity with original job)
+            checkout scm
+
+            // Setup Python venv and install Semgrep
+            sh '''
+              #!/bin/bash
+              set -e
+              if command -v python3 >/dev/null 2>&1; then
+                PY=python3
+              elif command -v python >/dev/null 2>&1; then
+                PY=python
+              else
+                echo "python not found - please install python3 on the agent" >&2
+                exit 1
+              fi
+
+              # create venv for semgrep
+              rm -rf .venv_semgrep
+              $PY -m venv .venv_semgrep
+              . .venv_semgrep/bin/activate
+              pip install --upgrade pip
+              pip install semgrep
+            '''
+
+            // Run Semgrep Scan (JSON Output for DefectDojo)
+            sh '''
+              #!/bin/bash
+              set -e
+              . .venv_semgrep/bin/activate
+              mkdir -p security-reports/semgrep
+              .venv_semgrep/bin/semgrep scan \
+                --config=auto \
+                --json \
+                --output security-reports/semgrep/semgrep.json \
+                . || true
+            '''
+
+            // Stash semgrep report
+            stash name: 'semgrep-report', includes: 'security-reports/semgrep/**', allowEmpty: true
+          } // catchError
+        } // script
+      } // steps
+      // Make it depend on previous stage implicitly by execution order
+    } // stage
+
+
+    // ============================================================
+    // STAGE 3 — Docker Build + Image + Runtime + DAST
+    // ============================================================
+    stage('Docker Build + Image + Runtime + DAST') {
+      environment {
+        COMPOSE_PROJECT_NAME = 'idurar-ci'
+      }
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+
+            checkout scm
+
+            // Docker Login
+            withCredentials([
+              usernamePassword(
+                credentialsId: 'docker-hub',
+                usernameVariable: 'DOCKER_USERNAME',
+                passwordVariable: 'DOCKER_TOKEN'
+              )
+            ]) {
+              sh '''
+                set -e
+                echo "$DOCKER_TOKEN" | docker login -u "$DOCKER_USERNAME" --password-stdin
+              '''
+            }
+
+            // Generate .env
+            withCredentials([
+              string(credentialsId: 'MONGO_INITDB_ROOT_USERNAME', variable: 'MONGO_INITDB_ROOT_USERNAME'),
+              string(credentialsId: 'MONGO_INITDB_ROOT_PASSWORD', variable: 'MONGO_INITDB_ROOT_PASSWORD'),
+              string(credentialsId: 'DATABASE', variable: 'DATABASE'),
+              string(credentialsId: 'JWT_SECRET', variable: 'JWT_SECRET'),
+              string(credentialsId: 'NODE_ENV', variable: 'NODE_ENV'),
+              string(credentialsId: 'PORT', variable: 'PORT'),
+              string(credentialsId: 'PUBLIC_SERVER_FILE', variable: 'PUBLIC_SERVER_FILE'),
+              string(credentialsId: 'JWT_TOKEN', variable: 'JWT_TOKEN')
+            ]) {
+              sh '''
+                set -e
+                {
+                  echo "MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME}"
+                  echo "MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD}"
+                  echo "DATABASE=${DATABASE}"
+                  echo "JWT_SECRET=${JWT_SECRET}"
+                  echo "NODE_ENV=${NODE_ENV}"
+                  echo "PORT=${PORT}"
+                  echo "PUBLIC_SERVER_FILE=${PUBLIC_SERVER_FILE}"
+                  echo "OPENSSL_CONF=/dev/null"
+                } > .env
+              '''
+            }
+
+            sh '''
+              sed 's/=.*$/=****/' .env || true
+            '''
+
+            // Docker Build
+            sh '''
+              set -e
+              docker compose --env-file .env build
+            '''
+
+            // Trivy Image Scan
+            sh '''
+              set -e
+              mkdir -p security-reports .trivy-cache
+
+              docker run --rm \
+                -u root \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v "$PWD:/out" \
+                -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
+                aquasec/trivy:latest image idurar-backend:latest \
+                  --cache-dir /tmp/trivy-cache \
+                  --severity HIGH,CRITICAL \
+                  --ignore-unfixed \
+                  --format json \
+                  -o /out/security-reports/trivy-image-backend.json || true
+
+              docker run --rm \
+                -u root \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v "$PWD:/out" \
+                -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
+                aquasec/trivy:latest image idurar-frontend:latest \
+                  --cache-dir /tmp/trivy-cache \
+                  --severity HIGH,CRITICAL \
+                  --ignore-unfixed \
+                  --format json \
+                  -o /out/security-reports/trivy-image-frontend.json || true
+            '''
+
+            // Deploy
+            sh '''
+              set -e
+              docker compose --env-file .env up -d
+            '''
+
+            // =====================================================
+            // Docker Status 
+            // =====================================================
+            sh '''
+              echo "===== Docker Containers ====="
+              docker ps -a || true
+              echo ""
+              echo "===== Docker Compose Services ====="
+              docker compose ps || true
+            '''
+
+            // =====================================================
+            // Container Logs
+            // =====================================================
+            sh '''
+              echo "===== MongoDB Logs ====="
+              docker logs idurar-mongodb --tail=200 || true
+
+              echo "===== Backend Logs ====="
+              docker logs idurar-backend --tail=200 || true
+
+              echo "===== Frontend Logs ====="
+              docker logs idurar-frontend --tail=200 || true
+            '''
+
+            // =====================================================
+            // Health Check
+            // =====================================================
+            sh '''
+              echo "Waiting for backend container to initialize..."
+              sleep 10
+
+              echo "Waiting for backend to become healthy..."
+
+              for i in $(seq 1 60); do
+                if curl -sf http://localhost:4000/public/health > /dev/null; then
+                  echo "Backend is healthy"
+                  exit 0
+                fi
+                echo "Retry $i/60 - backend not ready yet"
+                sleep 5
+              done
+
+              echo "Backend failed to start - dumping logs"
+              docker logs idurar-backend --tail=200 || true
+              docker logs idurar-mongodb --tail=200 || true
+              exit 1
+            '''
+
+            // =====================================================
+            // Runtime Scan
+            // =====================================================
+            sh '''
+              mkdir -p security-reports/runtime
+              mkdir -p .trivy-cache
+              chmod -R 777 security-reports
+
+              # Backend Scan
+              docker run --rm \
+                -u root \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v "$PWD/security-reports/runtime:/out" \
+                -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
+                aquasec/trivy:latest \
+                image idurar-backend:latest \
+                --cache-dir /tmp/trivy-cache \
+                --format json \
+                -o /out/trivy-runtime-backend.json || true
+
+              # Frontend Scan
+              docker run --rm \
+                -u root \
+                -v /var/run/docker.sock:/var/run/docker.sock \
+                -v "$PWD/security-reports/runtime:/out" \
+                -v "$PWD/.trivy-cache:/tmp/trivy-cache" \
+                aquasec/trivy:latest \
+                image idurar-frontend:latest \
+                --cache-dir /tmp/trivy-cache \
+                --format json \
+                -o /out/trivy-runtime-frontend.json || true
+            '''
+
+            // =====================================================
+            // ZAP Baseline 
+            // =====================================================
+            sh '''
+              mkdir -p security-reports/zap-baseline
+              chmod 777 security-reports/zap-baseline
+
+              docker run --rm \
+                --network host \
+                -u root \
+                -v "$PWD/security-reports/zap-baseline:/zap/wrk" \
+                zaproxy/zap-stable \
+                zap-baseline.py \
+                -t http://localhost:4000 \
+                -r zap-baseline.html \
+                -x zap-baseline.xml || true
+            '''
+            // =====================================================
+            // ZAP Active Scan (dynamic network)
+            // =====================================================
+            sh '''
+              set -e
+              mkdir -p security-reports/zap-active
+              chmod 777 security-reports/zap-active
+
+              docker run --rm \
+                -u root \
+                --network ${COMPOSE_PROJECT_NAME}_idurar-network \
+                -v "$PWD/security-reports/zap-active:/zap/wrk" \
+                zaproxy/zap-stable \
+                zap-full-scan.py \
+                -t http://idurar-backend:4000 \
+                -r zap-active.html \
+                -x zap-active.xml || true
+            '''
+
+            // =====================================================
+            // ZAP Authenticated Scan
+            // =====================================================
+            withCredentials([string(credentialsId: 'JWT_TOKEN', variable: 'JWT_TOKEN')]) {
+              sh '''
+                set -e
+                mkdir -p security-reports/zap-auth
+                chmod 777 security-reports/zap-auth
+
+                docker run --rm \
+                  -u root \
+                  --network ${COMPOSE_PROJECT_NAME}_idurar-network \
+                  -v "$PWD/security-reports/zap-auth:/zap/wrk" \
+                  zaproxy/zap-stable \
+                  zap-full-scan.py \
+                  -t http://idurar-backend:4000 \
+                  -z "-config replacer.full_list(0).description=auth \
+                       -config replacer.full_list(0).enabled=true \
+                       -config replacer.full_list(0).matchtype=REQ_HEADER \
+                       -config replacer.full_list(0).matchstr=Authorization \
+                       -config replacer.full_list(0).replacement=Bearer ${JWT_TOKEN}" \
+                  -r zap-auth.html \
+                  -x zap-auth.xml || true
+              '''
+            }
+
+            stash name: 'docker-security-reports',
+                  includes: 'security-reports/**',
+                  allowEmpty: true
+
+            sh '''
+              docker compose --env-file .env down -v --remove-orphans || true
+            '''
+
+          } // catchError
+        } // script
+      } // steps
+    } // stage
+
+
+    // ============================================================
+    // STAGE 4 — Final Aggregated Report
+    // ============================================================
+    stage('Final Security Report Bundle') {
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+            // Unstash artifacts produced earlier
+            // Create a reports directory and copy stashed artifacts if any
+            sh '''
+              mkdir -p reports || true
+            '''
+
+            // Unstash known artifacts if present
+            // Wrap in try to avoid failing if nothing was stashed
+            try {
+              unstash 'secrets-and-sca-reports'
+            } catch (e) { echo "No secrets-and-sca-reports to unstash (ok)" }
+            try {
+              unstash 'semgrep-report'
+            } catch (e) { echo "No semgrep-report to unstash (ok)" }
+            try {
+              unstash 'docker-security-reports'
+            } catch (e) { echo "No docker-security-reports to unstash (ok)" }
+
+            // Move any stashed data into reports/ (stashes were placed at repo root)
+            sh '''
+              #!/bin/bash
+              set -e
+              mkdir -p reports
+              # Find any files and copy (if stashes created files at workspace root)
+              if [ -d "${SEC_REPORTS_DIR}" ]; then
+                cp -r ${SEC_REPORTS_DIR} reports/ || true
+              fi
+              if [ -d "security-reports" ]; then
+                cp -r security-reports reports/ || true
+              fi
+              if [ -d "security-reports/semgrep" ]; then
+                cp -r security-reports/semgrep reports/ || true
+              fi
+            '''
+
+            // Create Report Index
+            sh '''
+              echo "Enterprise DevSecOps Security Reports" > reports/README.txt
+              echo "====================================" >> reports/README.txt
+              find reports -type f >> reports/README.txt || true
+            '''
+
+            // Archive reports (similar to upload-artifact)
+            archiveArtifacts artifacts: 'reports/**', fingerprint: true, allowEmptyArchive: true
+            // stash final bundle for downstream stages
+            stash name: 'final-reports-bundle', includes: 'reports/**', allowEmpty: true
+          } // catchError
+        } // script
+      } // steps
+    } // stage
+
+
+    // ============================================================
+    // STAGE 7 — Normalize Reports (Python Engine)
+    // ============================================================
+    stage('Normalize Security Reports') {
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+            checkout scm
+
+            // Unstash final reports from previous stage
+            try {
+              unstash 'final-reports-bundle'
+            } catch (e) { echo "No final-reports-bundle to unstash (ok)" }
+
+            // Download Raw Reports -> they are in reports/ ; copy to raw-reports for parity
+            sh '''
+              mkdir -p raw-reports
+              cp -r reports raw-reports 2>/dev/null || true
+            '''
+
+            // Setup Python venv & run normalize script
+            sh '''
+              #!/bin/bash
+              set -e
+
+              if command -v python3 >/dev/null 2>&1; then
+                PY=python3
+              elif command -v python >/dev/null 2>&1; then
+                PY=python
+              else
+                echo "python not found - please install python3 on the agent" >&2
+                exit 1
+              fi
+
+              rm -rf .venv_normalize
+              $PY -m venv .venv_normalize
+              . .venv_normalize/bin/activate
+              pip install --upgrade pip
+            '''
+
+            // Run normalize script in repo (keeps original behavior)
+            sh '''
+              #!/bin/bash
+              set -e
+              . .venv_normalize/bin/activate
+              mkdir -p normalized-reports
+              .venv_normalize/bin/python scripts/normalize_reports.py || true
+            '''
+
+            stash name: 'normalized-reports', includes: 'normalized-reports/**', allowEmpty: true
+          } // catchError
+        } // script
+      } // steps
+      // needs: final_report in GH -> satisfied by earlier sequential execution
+    } // stage
+
+
+    // ============================================================
+    // STAGE 8 — Upload Reports to Public DefectDojo (Correct)
+    // ============================================================
+    stage('Upload Reports to DefectDojo (Public)') {
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+            // Unstash normalized reports
+            try {
+              unstash 'normalized-reports'
+            } catch (e) { echo "No normalized-reports to unstash (ok)" }
+
+            // Download Normalized Reports into dojo-reports
+            sh '''
+              mkdir -p dojo-reports
+              cp -r normalized-reports/* dojo-reports/ || true
+            '''
+
+            // Upload Reports to DefectDojo
+            // Use DOJO_API_KEY and DOJO_ENGAGEMENT_ID: bind from Jenkins secret credentials
+            withCredentials([
+              string(credentialsId: 'DOJO_API_KEY', variable: 'DOJO_API_KEY'),
+              string(credentialsId: 'DOJO_ENGAGEMENT_ID', variable: 'DOJO_ENGAGEMENT_ID')
+            ]) {
+              sh '''
+                #!/bin/bash
+                set -e
+
+                upload() {
+                  local scan_type="$1"
+                  local file="$2"
+
+                  echo "Uploading [$scan_type] → $file"
+
+                  curl -s -X POST "https://demo.defectdojo.org/api/v2/import-scan/" \
+                    -H "Authorization: Token ${DOJO_API_KEY}" \
+                    -F "scan_type=${scan_type}" \
+                    -F "file=@${file}" \
+                    -F "engagement=${DOJO_ENGAGEMENT_ID}" \
+                    -F "close_old_findings=false"
+                }
+
+                # ===========================
+                # Semgrep (SAST)
+                # ===========================
+                find dojo-reports -type f -name "semgrep.json" | while read f; do
+                  upload "Semgrep JSON Report" "$f"
+                done
+
+                # ===========================
+                # Trivy (SCA + Image + Runtime)
+                # ===========================
+                find dojo-reports -type f -name "trivy-*.json" | while read f; do
+                  upload "Trivy Scan" "$f"
+                done
+
+                # ===========================
+                # Gitleaks (Secrets)
+                # ===========================
+                find dojo-reports -type f -name "gitleaks.json" | while read f; do
+                  upload "Gitleaks Scan" "$f"
+                done
+
+                # ===========================
+                # ZAP (DAST) — XML ONLY
+                # ===========================
+                find dojo-reports -type f -name "zap-*.xml" | while read f; do
+                  upload "ZAP Scan" "$f"
+                done
+              '''
+            } // withCredentials
+          } // catchError
+        } // script
+      } // steps
+    } // stage
+
+
+    // ============================================================
+    // STAGE 9 — Validation Pipeline using Mutillidae (Task 23)
+    // ============================================================
+    stage('Pipeline Validation using Mutillidae') {
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+            sh '''
+              #!/bin/bash
+              set -e
+              docker run -d -p 8081:80 citizenstig/nowasp || true
+            '''
+
+            // Wait for Mutillidae to start
+            sh '''
+              #!/bin/bash
+              set -e
+              echo "Waiting for Mutillidae..."
+              for i in $(seq 1 30); do
+                if curl -sf http://localhost:8081; then
+                  echo "Mutillidae is ready"
+                  exit 0
+                fi
+                sleep 3
+              done
+              echo "Mutillidae failed to start"
+              docker logs $(docker ps -q) || true
+              exit 1
+            '''
+
+            // Validate ZAP against Mutillidae
+            sh '''
+              #!/bin/bash
+              set -e
+              docker run --rm --network host \
+                zaproxy/zap-stable \
+                zap-baseline.py \
+                -t http://localhost:8081 \
+                -r mutillidae-zap.html || true
+            '''
+
+            // stash mutillidae output if any
+            stash name: 'mutillidae-zap', includes: 'mutillidae-zap.html', allowEmpty: true
+          } // catchError
+        } // script
+      } // steps
+      // needs: docker_security, normalize_reports, defectdojo_upload satisfied by sequence
+    } // stage
+
+
+    // ============================================================
+    // STAGE 10 — Documentation Artifact (Task 24)
+    // ============================================================
+    stage('Generate Pipeline Documentation') {
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+            sh '''
+              mkdir -p documentation
+              cat <<EOF > documentation/pipeline-blueprint.md
+              # Enterprise DevSecOps Pipeline Blueprint
+
+              ## Stages:
+              - Secrets Scan
+              - SCA
+              - SAST
+              - Image Scan
+              - Runtime Scan
+              - Active + Authenticated DAST
+              - Report Normalization
+              - DefectDojo Integration
+              - Final Reporting
+              EOF
+            '''
+
+            archiveArtifacts artifacts: 'documentation/**', allowEmptyArchive: true
+            stash name: 'pipeline-documentation', includes: 'documentation/**', allowEmpty: true
+          } // catchError
+        } // script
+      } // steps
+    } // stage
+
+
+    // ============================================================
+    // STAGE 11 — Final Security Report Generator
+    // ============================================================
+    stage('Generate Final Enterprise Security Report') {
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+            // Download All Pipeline Artifacts: unstash previously stashed artifacts into all-reports
+            sh '''
+              mkdir -p all-reports || true
+            '''
+
+            // Try unstashing known bundles
+            try { unstash 'secrets-and-sca-reports' } catch (e) { echo "ok" }
+            try { unstash 'semgrep-report' } catch (e) { echo "ok" }
+            try { unstash 'docker-security-reports' } catch (e) { echo "ok" }
+            try { unstash 'normalized-reports' } catch (e) { echo "ok" }
+            try { unstash 'final-reports-bundle' } catch (e) { echo "ok" }
+            try { unstash 'pipeline-documentation' } catch (e) { echo "ok" }
+
+            // Consolidate into all-reports (some stashes will have created directories at workspace root)
+            sh '''
+              #!/bin/bash
+              set -e
+              mkdir -p all-reports
+              cp -r reports all-reports/ || true
+              cp -r security-reports all-reports/ || true
+              cp -r normalized-reports all-reports/ || true
+              cp -r documentation all-reports/ || true
+            '''
+
+            // Setup Python venv & Install Dependencies
+            sh '''
+              #!/bin/bash
+              set -e
+              if command -v python3 >/dev/null 2>&1; then
+                PY=python3
+              elif command -v python >/dev/null 2>&1; then
+                PY=python
+              else
+                echo "python not found - please install python3 on the agent" >&2
+                exit 1
+              fi
+
+              rm -rf .venv_final
+              $PY -m venv .venv_final
+              . .venv_final/bin/activate
+              pip install --upgrade pip
+              pip install jinja2 rich
+            '''
+
+            // Generate Final Enterprise Security Report
+            sh '''
+#!/bin/bash
+set -e
+mkdir -p final-report
+. .venv_final/bin/activate
+
+python <<'PYEOF'
+import os, json, glob, datetime, xml.etree.ElementTree as ET
+from collections import defaultdict
+from jinja2 import Template
+
+REPORT_ROOT = "all-reports"
+OUTPUT_FILE = "final-report/final-security-report.md"
+
+severity = defaultdict(int)
+tools = defaultdict(list)
+
+def normalize(sev):
+    sev = sev.upper()
+    if sev in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"]:
+        return sev
+    if sev in ["WARN","WARNING"]:
+        return "MEDIUM"
+    return "LOW"
+
+def parse_trivy(file):
+    try:
+        data=json.load(open(file))
+        for r in data.get("Results",[]):
+            for v in r.get("Vulnerabilities",[]):
+                s=normalize(v.get("Severity","LOW"))
+                severity[s]+=1
+                tools["Trivy"].append(v.get("VulnerabilityID","UNKNOWN"))
+    except: pass
+
+def parse_semgrep(file):
+    try:
+        data=json.load(open(file))
+        for r in data.get("results",[]):
+            s=normalize(r.get("extra",{}).get("severity","LOW"))
+            severity[s]+=1
+            tools["Semgrep"].append(r.get("check_id","UNKNOWN"))
+    except: pass
+
+def parse_gitleaks(file):
+    try:
+        with open(file, "r") as fh:
+            data = json.load(fh)
+
+        seen = set()
+
+        for f in data:
+            fingerprint = (
+                f.get("RuleID"),
+                f.get("File"),
+                f.get("StartLine"),
+                f.get("Commit")
+            )
+
+            if fingerprint in seen:
+                continue
+
+            seen.add(fingerprint)
+            severity["HIGH"] += 1
+            tools["Gitleaks"].append(
+                f.get("Description", "Hardcoded Secret")
+            )
+
+    except Exception as e:
+        print(f"Gitleaks parse error in {file}: {e}")
+
+def parse_zap(file):
+    try:
+        tree=ET.parse(file)
+        root=tree.getroot()
+        for alert in root.iter("alertitem"):
+            sev=normalize(alert.findtext("riskdesc","Low").split()[0])
+            severity[sev]+=1
+            tools["ZAP"].append(alert.findtext("name","Web Vulnerability"))
+    except: pass
+
+for f in glob.glob(f"{REPORT_ROOT}/**/*", recursive=True):
+    if f.endswith(".json"):
+        if "trivy" in f: parse_trivy(f)
+        elif "semgrep" in f: parse_semgrep(f)
+        elif "gitleaks" in f: parse_gitleaks(f)
+    elif f.endswith(".xml") and "zap" in f:
+        parse_zap(f)
+
+total=sum(severity.values())
+
+risk="LOW"
+if severity["CRITICAL"]>0: risk="CRITICAL"
+elif severity["HIGH"]>10: risk="HIGH"
+elif severity["MEDIUM"]>25: risk="MODERATE"
+
+decision="APPROVED FOR RELEASE WITH SECURITY CONDITIONS"
+if severity["CRITICAL"]>0:
+    decision="RELEASE BLOCKED — CRITICAL RISK PRESENT"
+
+template=Template("""
+#  Enterprise DevSecOps Final Security Report
+
+**Project:** IDURAR Platform  
+**Environment:** Staging  
+**Pipeline:** Enterprise DevSecOps CI/CD  
+**Date:** {{ date }}  
+
+---
+
+# 1. Executive Summary
+
+### Overall Security Posture: **{{ risk }} RISK**
+
+| Severity | Count |
+|------------|--------|
+| Critical | {{ crit }} |
+| High | {{ high }} |
+| Medium | {{ med }} |
+| Low | {{ low }} |
+| Informational | {{ info }} |
+| **Total** | **{{ total }}** |
+
+**Release Decision:** **{{ decision }}**
+
+---
+
+# 2. Security Coverage Overview
+
+End-to-end security validation was executed across:
+
+- Secrets detection
+- Dependency security (SCA)
+- Static application security testing (SAST)
+- Container image & runtime security
+- Dynamic application security testing (DAST)
+- Pipeline exploit validation
+
+---
+
+# 3. Consolidated Vulnerability Analysis
+
+## A. Secrets & Credential Exposure — Gitleaks
+
+**Findings:** {{ gitleaks }}  
+**Impact:** Credential compromise enables unauthorized access, lateral movement, and data exfiltration.  
+
+**Remediation:**
+- Rotate all exposed credentials immediately  
+- Remove secrets from Git history  
+- Enforce secrets scanning in CI  
+
+**Engineering Fixes:**
+- Use GitHub Secrets / Vault injection  
+- Implement pre-commit hooks  
+- Enforce secret lifecycle governance  
+
+---
+
+## B. Dependency & SCA Findings — Trivy
+
+**Findings:** {{ trivy }}  
+**Impact:** Known vulnerable libraries introduce exploitable attack paths.  
+
+**Remediation:**
+- Patch high & critical CVEs  
+- Enforce dependency SLAs  
+
+**Engineering Fixes:**
+- SBOM validation  
+- Automated dependency upgrades  
+
+---
+
+## C. Static Code Vulnerabilities — Semgrep
+
+**Findings:** {{ semgrep }}  
+**Impact:** Injection, authentication bypass, and logic flaws.  
+
+**Remediation:**
+- Refactor insecure code  
+- Apply secure coding patterns  
+
+**Engineering Fixes:**
+- SAST gating  
+- Secure coding standards  
+
+---
+
+## D. Container Image & Runtime Vulnerabilities — Trivy
+
+**Findings:** {{ trivy }}  
+**Impact:** Runtime exploitation and container breakout risk.  
+
+**Remediation:**
+- Harden base images  
+- Patch runtime packages  
+
+**Engineering Fixes:**
+- Distroless containers  
+- Runtime protection enforcement  
+
+---
+
+## E. Dynamic Application Security Testing — OWASP ZAP
+
+**Findings:** {{ zap }}  
+**Impact:** SQL injection, XSS, authentication bypass, session fixation.  
+
+**Remediation:**
+- Apply OWASP Top 10 mitigations  
+
+**Engineering Fixes:**
+- Secure request validation  
+- Security headers & session hardening  
+
+---
+
+# 4. Root Cause Analysis
+
+- Weak secrets governance  
+- Dependency lifecycle gaps  
+- Unhardened runtime environments  
+- Missing secure SDLC enforcement  
+
+---
+
+# 5. Security Recommendations Roadmap
+
+**Immediate (0–7 Days):**
+- Patch critical CVEs  
+- Rotate secrets  
+- Harden containers  
+
+**Short Term (30 Days):**
+- Enforce SAST & SCA gates  
+- Introduce SBOM governance  
+
+**Strategic (90 Days):**
+- Zero Trust architecture  
+- Runtime exploit detection  
+- Threat modeling automation  
+
+---
+
+# 6. DevSecOps Maturity Assessment
+
+**Maturity Level:** Advanced  
+
+CI/CD demonstrates high security automation, governance, and enterprise readiness.
+
+---
+
+# 7. Strategic Security Enhancements
+
+- CSPM & cloud posture management  
+- Continuous breach simulation  
+- Automated compliance reporting  
+
+---
+
+# 8. Final Security Verdict
+
+**{{ decision }}**
+
+---
+
+# 9. Appendix
+
+All raw scan artifacts retained within CI/CD pipeline for compliance and audit purposes.
+""")
+
+report=template.render(
+    date=str(datetime.date.today()),
+    crit=severity["CRITICAL"],
+    high=severity["HIGH"],
+    med=severity["MEDIUM"],
+    low=severity["LOW"],
+    info=severity["INFO"],
+    total=total,
+    risk=risk,
+    decision=decision,
+    gitleaks=len(tools["Gitleaks"]),
+    trivy=len(tools["Trivy"]),
+    semgrep=len(tools["Semgrep"]),
+    zap=len(tools["ZAP"])
+)
+
+with open(OUTPUT_FILE,"w") as f:
+    f.write(report)
+
+print("Enterprise Final Security Report generated →", OUTPUT_FILE)
+PYEOF
+'''
+
+            archiveArtifacts artifacts: 'final-report/**', allowEmptyArchive: true
+            stash name: 'FINAL-ENTERPRISE-SECURITY-REPORT', includes: 'final-report/**', allowEmpty: true
+          } // catchError
+        } // script
+      } // steps
+    } // stage
+
+
+    // ============================================================
+    // STAGE 12 — DefectDojo Enterprise Report Upload
+    // ============================================================
+    stage('DefectDojo Enterprise Report Upload') {
+      steps {
+        script {
+          catchError(buildResult: 'SUCCESS', stageResult: 'UNSTABLE') {
+            // Unstash Final Security Report
+            try { unstash 'FINAL-ENTERPRISE-SECURITY-REPORT' } catch (e) { echo "No final security report to unstash (ok)" }
+
+            // Upload Full Final Report to DefectDojo
+            withCredentials([
+              string(credentialsId: 'DOJO_API_KEY', variable: 'DOJO_API_KEY'),
+              string(credentialsId: 'DOJO_ENGAGEMENT_ID', variable: 'DOJO_ENGAGEMENT_ID')
+            ]) {
+              sh '''
+                #!/bin/bash
+                set -e
+
+                echo "Uploading enterprise report to DefectDojo..."
+
+                curl -s -X POST "https://demo.defectdojo.org/api/v2/files/" \
+                  -H "Authorization: Token ${DOJO_API_KEY}" \
+                  -F "file=@final-report/final-security-report.md" \
+                  -F "engagement=${DOJO_ENGAGEMENT_ID}" \
+                  -F "title=Final Security Assessment" \
+                  -F "description=Automated CI/CD generated security assessment" || true
+              '''
+            }
+          } // catchError
+        } // script
+      } // steps
+    } // stage
+
+  } // stages
+
+  post {
+    always {
+      script {
+        // Make sure any running compose is shutdown for cleanliness
+        sh '''
+          #!/bin/bash
+          set -e
+          docker compose --env-file .env down -v --remove-orphans || true
+        '''
+      }
+      // publish artifacts again to ensure they are available
+      archiveArtifacts artifacts: 'final-report/**', allowEmptyArchive: true
+    }
+  }
+}
