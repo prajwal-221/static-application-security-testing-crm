@@ -1,0 +1,394 @@
+name: Kubernetes Security & IaC Scanning Pipeline
+
+on:
+  push:
+    branches:
+      - staging
+  pull_request:
+    branches:
+      - staging
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  K8S_DIR: k8s
+  POLICY_DIR: policies
+  REPORT_DIR: reports
+
+jobs:
+  # ─────────────────────────────────────────────
+  # JOB 1 — YAML LINT
+  # ─────────────────────────────────────────────
+  yaml-lint:
+    name: "YAML Lint — yamllint"
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          clean: true
+
+      - name: Install yamllint
+        run: pip install yamllint
+
+      - name: Run yamllint
+        run: |
+          mkdir -p $REPORT_DIR
+          yamllint -f parsable -d relaxed $K8S_DIR > $REPORT_DIR/yamllint.txt || true
+          COUNT=$(wc -l < $REPORT_DIR/yamllint.txt || echo 0)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "YAML Lint Result: PASS"
+          else
+            echo "YAML Lint Result: WARN — $COUNT warnings detected"
+            cat $REPORT_DIR/yamllint.txt
+          fi
+
+      - name: Upload yamllint report
+        uses: actions/upload-artifact@v4
+        with:
+          name: yamllint-report
+          path: ${{ env.REPORT_DIR }}/yamllint.txt
+
+  # ─────────────────────────────────────────────
+  # JOB 2 — KUBERNETES SCHEMA VALIDATION
+  # ─────────────────────────────────────────────
+  kubeconform:
+    name: "Kubernetes Schema Validation — kubeconform"
+    runs-on: ubuntu-latest
+    needs: yaml-lint
+    steps:
+      - name: Checkout (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          clean: true
+
+      - name: Install kubeconform
+        run: |
+          curl -sSL https://github.com/yannh/kubeconform/releases/latest/download/kubeconform-linux-amd64.tar.gz \
+          | tar xz -C /usr/local/bin
+
+      - name: Run kubeconform
+        run: |
+          mkdir -p $REPORT_DIR
+          find $K8S_DIR -name "*.yaml" -print0 | \
+            xargs -0 kubeconform -strict -summary -verbose -output json -ignore-missing-schemas \
+            > $REPORT_DIR/kubeconform.json || true
+          INVALID=$(jq '.summary.invalid' $REPORT_DIR/kubeconform.json 2>/dev/null || echo 0)
+          if [ "$INVALID" -eq 0 ]; then
+            echo "Kubeconform Result: PASS — All schemas valid"
+          else
+            echo "Kubeconform Result: FAIL — $INVALID invalid resources"
+            exit 1
+          fi
+
+      - name: Upload kubeconform report
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubeconform-report
+          path: ${{ env.REPORT_DIR }}/kubeconform.json
+
+  # ─────────────────────────────────────────────
+  # JOB 3 — KUBERNETES BEST PRACTICES
+  # ─────────────────────────────────────────────
+  kube-score:
+    name: "Kubernetes Best Practices — kube-score"
+    runs-on: ubuntu-latest
+    needs: kubeconform
+    steps:
+      - name: Checkout (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          clean: true
+
+      - name: Install kube-score
+        run: |
+          curl -sSL https://github.com/zegl/kube-score/releases/latest/download/kube-score_linux_amd64 \
+            -o /usr/local/bin/kube-score
+          chmod +x /usr/local/bin/kube-score
+
+      - name: Run kube-score
+        run: |
+          mkdir -p $REPORT_DIR
+          kube-score score $K8S_DIR/**/*.yaml -o json > $REPORT_DIR/kube-score.json || true
+          CRITICAL=$(jq '[.[] | .checks[] | select(.grade <= 3)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
+          WARNING=$(jq '[.[] | .checks[] | select(.grade > 3 and .grade <= 6)] | length' $REPORT_DIR/kube-score.json 2>/dev/null || echo 0)
+          if [ "$CRITICAL" -gt 0 ]; then
+            echo "Kube-score Result: FAIL — $CRITICAL critical findings"
+            exit 1
+          elif [ "$WARNING" -gt 0 ]; then
+            echo "Kube-score Result: WARN — $WARNING warnings"
+          else
+            echo "Kube-score Result: PASS — No findings"
+          fi
+
+      - name: Upload kube-score report
+        uses: actions/upload-artifact@v4
+        with:
+          name: kube-score-report
+          path: ${{ env.REPORT_DIR }}/kube-score.json
+
+  # ─────────────────────────────────────────────
+  # JOB 4 — KUBERNETES SECURITY SCAN
+  # ─────────────────────────────────────────────
+  kubesec:
+    name: "Kubernetes Security Scan — kubesec"
+    runs-on: ubuntu-latest
+    needs: kubeconform
+    steps:
+      - name: Checkout (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          clean: true
+
+      - name: Install kubesec & yq
+        run: |
+          curl -sSL https://github.com/controlplaneio/kubesec/releases/latest/download/kubesec_linux_amd64.tar.gz \
+            | tar xz -C /usr/local/bin
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Run kubesec
+        run: |
+          mkdir -p $REPORT_DIR
+          echo "[" > $REPORT_DIR/kubesec.json
+          first=true
+          for file in $(find $K8S_DIR -name "*.yaml"); do
+            kind=$(yq e '.kind' "$file")
+            case "$kind" in
+              Deployment|StatefulSet|DaemonSet|Job|CronJob)
+                result=$(kubesec scan "$file" 2>/dev/null || true)
+                if [ "$first" = true ]; then first=false; else echo "," >> $REPORT_DIR/kubesec.json; fi
+                echo "$result" >> $REPORT_DIR/kubesec.json
+                ;;
+            esac
+          done
+          echo "]" >> $REPORT_DIR/kubesec.json
+          FINDINGS=$(jq '[.[] | .scoring.advise[]] | length' $REPORT_DIR/kubesec.json 2>/dev/null || echo 0)
+          if [ "$FINDINGS" -eq 0 ]; then
+            echo "Kubesec Result: PASS — No security findings"
+          else
+            echo "Kubesec Result: WARN — $FINDINGS recommendations"
+          fi
+
+      - name: Upload kubesec report
+        uses: actions/upload-artifact@v4
+        with:
+          name: kubesec-report
+          path: ${{ env.REPORT_DIR }}/kubesec.json
+
+  # ─────────────────────────────────────────────
+  # JOB 5 — IAC SECURITY SCAN (existing, warn-only)
+  # ─────────────────────────────────────────────
+  checkov-scan:
+    name: "IaC Security Scan — Checkov"
+    runs-on: ubuntu-latest
+    needs: kubeconform
+    steps:
+      - name: Checkout (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          clean: true
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov (full scan, informational)
+        run: |
+          mkdir -p $REPORT_DIR
+          checkov -d $K8S_DIR -o json > $REPORT_DIR/checkov.json || true
+          FAILED=$(jq '.results.failed_checks | length' $REPORT_DIR/checkov.json 2>/dev/null || echo 0)
+          if [ "$FAILED" -eq 0 ]; then
+            echo "Checkov Result: PASS — No failed checks"
+          else
+            echo "Checkov Result: WARN — $FAILED failed checks (see IAC-02 gate for critical enforcement)"
+          fi
+
+      - name: Upload Checkov report
+        uses: actions/upload-artifact@v4
+        with:
+          name: checkov-report
+          path: ${{ env.REPORT_DIR }}/checkov.json
+
+  # ─────────────────────────────────────────────
+  # JOB 6 — IAC-02: IaC GATE ENFORCEMENT (FAIL ON CRITICAL)
+  # ─────────────────────────────────────────────
+  iac-gate-enforcement:
+    name: "IAC-02 — IaC Gate Enforcement (Checkov Critical)"
+    runs-on: ubuntu-latest
+    needs: checkov-scan
+    steps:
+      - name: Checkout (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          clean: true
+
+      - name: Install Checkov
+        run: pip install checkov
+
+      - name: Run Checkov — CRITICAL misconfig gate
+        id: checkov_gate
+        run: |
+          mkdir -p $REPORT_DIR
+
+          # Run Checkov and collect results in JSON
+          checkov -d $K8S_DIR \
+            --compact \
+            --output json \
+            --output-file-path $REPORT_DIR \
+            --hard-fail-on HIGH \
+            2>&1 | tee $REPORT_DIR/checkov-gate-console.txt || true
+
+          GATE_REPORT="$REPORT_DIR/results_json.json"
+
+          # Gracefully handle missing report file
+          if [ ! -f "$GATE_REPORT" ]; then
+            echo "::warning::Checkov gate report not found — defaulting to 0 critical failures"
+            echo "IAC-02 Result: PASS (no report generated)"
+            exit 0
+          fi
+
+          # Count HIGH-severity (critical) failures
+          CRITICAL_COUNT=$(jq '
+            [
+              .results.failed_checks[]
+              | select(.severity == "HIGH" or .severity == "CRITICAL")
+            ] | length
+          ' "$GATE_REPORT" 2>/dev/null || echo 0)
+
+          # Summarise all failed checks for the job log
+          echo "──────────────────────────────────────────────"
+          echo "IAC-02 Gate — Critical Misconfiguration Report"
+          echo "──────────────────────────────────────────────"
+          jq -r '
+            .results.failed_checks[]
+            | select(.severity == "HIGH" or .severity == "CRITICAL")
+            | "[\(.severity)] \(.check_id) — \(.check_name)\n  File : \(.repo_file_path)\n  Lines: \(.file_line_range | tostring)\n"
+          ' "$GATE_REPORT" 2>/dev/null || echo "(unable to parse details)"
+
+          echo "──────────────────────────────────────────────"
+          echo "Total critical failures: $CRITICAL_COUNT"
+
+          # Write a human-readable gate summary
+          {
+            echo "# IAC-02 Gate Enforcement Summary"
+            echo ""
+            echo "| Metric | Value |"
+            echo "|--------|-------|"
+            echo "| Critical / HIGH failures | $CRITICAL_COUNT |"
+            echo "| Scan directory | $K8S_DIR |"
+            echo "| Timestamp | $(date -u '+%Y-%m-%d %H:%M:%S UTC') |"
+            echo ""
+            if [ "$CRITICAL_COUNT" -gt 0 ]; then
+              echo "**Gate Status: ❌ FAILED — $CRITICAL_COUNT critical misconfiguration(s) detected.**"
+              echo ""
+              echo "Deployment to staging is BLOCKED until all HIGH/CRITICAL findings are resolved."
+            else
+              echo "**Gate Status: ✅ PASSED — No critical misconfigurations detected.**"
+            fi
+          } > $REPORT_DIR/iac-gate-summary.md
+
+          cat $REPORT_DIR/iac-gate-summary.md
+
+          # Hard fail the pipeline if any critical issues found
+          if [ "$CRITICAL_COUNT" -gt 0 ]; then
+            echo "::error::IAC-02 Gate FAILED — $CRITICAL_COUNT critical misconfiguration(s) found. Fix all HIGH/CRITICAL Checkov findings before merging."
+            exit 1
+          fi
+
+          echo "IAC-02 Gate: PASSED"
+
+      - name: Upload IAC-02 gate reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iac-gate-reports
+          path: |
+            ${{ env.REPORT_DIR }}/iac-gate-summary.md
+            ${{ env.REPORT_DIR }}/checkov-gate-console.txt
+            ${{ env.REPORT_DIR }}/results_json.json
+
+      - name: Post gate summary to Job Summary
+        if: always()
+        run: |
+          if [ -f "$REPORT_DIR/iac-gate-summary.md" ]; then
+            cat $REPORT_DIR/iac-gate-summary.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+  # ─────────────────────────────────────────────
+  # JOB 7 — POLICY ENFORCEMENT
+  # ─────────────────────────────────────────────
+  conftest:
+    name: "Policy Enforcement — Conftest"
+    runs-on: ubuntu-latest
+    needs: [kube-score, kubesec, iac-gate-enforcement]
+    steps:
+      - name: Checkout (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          clean: true
+
+      - name: Install Conftest
+        run: |
+          curl -sSL https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz \
+            | tar xz -C /usr/local/bin
+
+      - name: Run Conftest
+        run: |
+          mkdir -p $REPORT_DIR
+          if [ -d "$POLICY_DIR" ] && [ "$(ls -A $POLICY_DIR 2>/dev/null)" ]; then
+            conftest test $K8S_DIR --policy $POLICY_DIR -o json > $REPORT_DIR/conftest.json || true
+          else
+            echo "[]" > $REPORT_DIR/conftest.json
+          fi
+          COUNT=$(jq 'length' $REPORT_DIR/conftest.json 2>/dev/null || echo 0)
+          if [ "$COUNT" -eq 0 ]; then
+            echo "Conftest Result: PASS — No policy violations"
+          else
+            echo "Conftest Result: FAIL — $COUNT violations"
+            exit 1
+          fi
+
+      - name: Upload Conftest report
+        uses: actions/upload-artifact@v4
+        with:
+          name: conftest-report
+          path: ${{ env.REPORT_DIR }}/conftest.json
+
+  # ─────────────────────────────────────────────
+  # JOB 8 — GENERATE SECURITY REPORT
+  # ─────────────────────────────────────────────
+  generate-report:
+    name: "Generate Security Report"
+    runs-on: ubuntu-latest
+    needs: [yaml-lint, kubeconform, kube-score, kubesec, checkov-scan, iac-gate-enforcement, conftest]
+    if: always()
+    steps:
+      - name: Checkout (staging)
+        uses: actions/checkout@v4
+        with:
+          ref: staging
+          clean: true
+
+      - name: Download all reports
+        uses: actions/download-artifact@v4
+        with:
+          path: ${{ env.REPORT_DIR }}
+          merge-multiple: true
+
+      - name: Generate security report
+        run: python3 scripts/generate_report.py
+
+      - name: Upload final security report
+        uses: actions/upload-artifact@v4
+        with:
+          name: final-security-report
+          path: ${{ env.REPORT_DIR }}

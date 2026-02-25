@@ -12,6 +12,7 @@
     "setup": "node src/setup/setup.js",
     "upgrade": "node src/setup/upgrade.js",
     "reset": "node src/setup/reset.js",
+    "seed:test": "node src/setup/seedTestData.js",
     "lint": "eslint .",
     "lint:security": "eslint . --ext .js"
   },
