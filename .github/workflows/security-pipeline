@@ -561,6 +561,34 @@ jobs:
 
 
       ############################################################
+      # ZAP API Scan — OpenAPI Import (DAST-04)
+      ############################################################
+      - name: ZAP API Scan (OpenAPI)
+        run: |
+          mkdir -p security-reports/zap-api
+          chmod 777 security-reports/zap-api
+
+          docker run --rm \
+            -u root \
+            --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
+            -v "$PWD/security-reports/zap-api:/zap/wrk" \
+            -v "$PWD:/project" \
+            zaproxy/zap-stable \
+            zap-api-scan.py \
+            -t /project/openapi.yaml \
+            -f openapi \
+            -r zap-api.html \
+            -x zap-api.xml || true
+
+      # - name: Enforce ZAP API Gate
+      #   run: |
+      #     if grep -q "<riskdesc>High\|<riskdesc>Critical" security-reports/zap-api/zap-api.xml; then
+      #       echo "❌ Critical/High DAST findings detected — blocking pipeline"
+      #       exit 1
+      #     fi
+
+
+      ############################################################
       # ZAP Active DAST — DefectDojo Compatible
       ############################################################
       - name: ZAP Active Scan (Live App)
@@ -578,10 +606,12 @@ jobs:
             -r zap-active.html \
             -x zap-active.xml || true
 
-      # ZAP ACTIVE Scan Gate
       # - name: Enforce ZAP Active Gate
       #   run: |
-      #     grep -q "<riskdesc>High" security-reports/zap-active/zap-active.xml && exit 1
+      #     if grep -q "<riskdesc>High\|<riskdesc>Critical" security-reports/zap-active/zap-active.xml; then
+      #       echo "❌ Critical/High DAST findings detected — blocking pipeline"
+      #       exit 1
+      #     fi
 
 
       ############################################################
@@ -607,10 +637,13 @@ jobs:
             -r zap-auth.html \
             -x zap-auth.xml || true
 
-      # ZAP Authenticated Scan Gate
       # - name: Enforce ZAP Auth Gate
       #   run: |
-      #     grep -q "<riskdesc>High" security-reports/zap-auth/zap-auth.xml && exit 1
+      #     if grep -q "<riskdesc>High\|<riskdesc>Critical" security-reports/zap-auth/zap-auth.xml; then
+      #       echo "❌ Critical/High DAST findings detected — blocking pipeline"
+      #       exit 1
+      #     fi
+
 
       ############################################################
       # Upload Reports
