@@ -38,7 +38,7 @@ RUN curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm
 # Trivy (stable pinned)
 # ===============================
 RUN curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
-    | sh -s -- -b /usr/local/bin v0.49.1
+    | sh -s -- -b /usr/local/bin v0.69.3
 
 
 # ===============================
@@ -84,8 +84,10 @@ RUN curl -L https://github.com/open-policy-agent/conftest/releases/download/v0.5
 # ===============================
 # yamllint + checkov (pipx global → PATH safe)
 # ===============================
-RUN pipx install --global yamllint && \
-    pipx install --global checkov
+RUN apt-get update && apt-get install -y yamllint && \
+    pipx ensurepath && \
+    pipx install checkov && \
+    rm -rf /var/lib/apt/lists/*
 
 
 # ===============================
