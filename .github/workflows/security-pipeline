@@ -663,6 +663,40 @@ jobs:
 
 
 ############################################################
+# ADVANCED TESTING — API FUZZING (ADV-01)
+############################################################
+  advanced_testing_api_fuzzing:
+    name: Advanced Testing — API Fuzzing (ffuf)
+    runs-on: ubuntu-latest
+    needs: docker_security
+    continue-on-error: true
+    if: github.ref == 'refs/heads/staging' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffuf
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/ffuf/ffuf/master/install.sh | bash
+          sudo mv ffuf /usr/local/bin/ffuf
+
+      - name: Run ffuf API fuzzing (OpenAPI-guided)
+        env:
+          JWT_TOKEN: ${{ secrets.JWT_TOKEN }}
+        run: |
+          python3 scripts/ffuf_openapi_fuzz.py \
+            --openapi openapi.yaml \
+            --base-url http://localhost:4000 \
+            --out-dir security-reports/ffuf
+
+      - name: Upload ffuf Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffuf-fuzzing-reports
+          path: security-reports/ffuf/
+
+
+############################################################
 # STAGE 4 — Final Aggregated Report
 ############################################################
   final_report:
@@ -994,7 +1028,7 @@ jobs:
               decision="RELEASE BLOCKED — CRITICAL RISK PRESENT"
 
           template=Template("""
-          # 🛡️ Enterprise DevSecOps Final Security Report
+          # Enterprise DevSecOps Final Security Report
 
           **Project:** IDURAR Platform  
           **Environment:** Staging  
