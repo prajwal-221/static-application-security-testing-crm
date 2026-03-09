@@ -130,6 +130,10 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: "20"
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
 
       - name: Install Backend Dependencies
         run: |
@@ -228,13 +232,22 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Setup Node (cached)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
       ############################################################
       # Backend ESLint
       ############################################################
       - name: Backend ESLint Security Scan
         run: |
           cd backend
-          npm install
+          npm ci
           npm run lint:security
 
       ############################################################
@@ -243,7 +256,7 @@ jobs:
       - name: Frontend ESLint Security Scan
         run: |
           cd frontend
-          npm install
+          npm ci
           npm run lint:security
 
 
@@ -269,6 +282,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
 
       ############################################################
       # Install Semgrep CLI
@@ -745,6 +759,7 @@ jobs:
       uses: actions/setup-python@v5
       with:
         python-version: "3.11"
+        cache: 'pip'
 
     - name: Normalize Reports
       run: |
@@ -937,6 +952,7 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+          cache: 'pip'
 
       ############################################################
       # Install Reporting Dependencies
