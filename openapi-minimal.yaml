@@ -108,8 +108,12 @@ paths:
           application/json:
             schema:
               type: object
-              required: ["email", "password"]
+              required: ["name", "email", "password"]
               properties:
+                name:
+                  type: string
+                  minLength: 2
+                  description: User full name
                 email:
                   type: string
                   format: email
@@ -119,6 +123,7 @@ paths:
                   minLength: 6
                   description: User password
               example:
+                name: Test User
                 email: admin@example.com
                 password: password123
       responses:
