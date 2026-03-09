@@ -1,0 +1,5 @@
+semgrep
+nodejsscan
+jinja2
+rich
+requests>=2.31.0

@@ -284,6 +284,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            defectdojo/pyproject.toml
 
       ############################################################
       # Install Semgrep CLI
@@ -761,6 +764,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            defectdojo/pyproject.toml
 
       - name: Normalize Reports
         run: |
@@ -954,6 +960,9 @@ jobs:
         with:
           python-version: "3.11"
           cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            defectdojo/pyproject.toml
 
       ############################################################
       # Install Reporting Dependencies
