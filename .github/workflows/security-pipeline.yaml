@@ -1,4 +1,4 @@
-name: DevSecOps Pipeline (Staging)
+name: DevSecOps Pipeline
 
 # Updated Workflow Trigger Configuration
 on:
