@@ -28,10 +28,8 @@ info:
     name: Fair-code License
 
 servers:
-  - url: http://localhost:4000/api
+  - url: http://idurar-backend:4000/api
     description: Development server
-  - url: https://your-domain.com/api
-    description: Production server
 
 tags:
   - name: Authentication
@@ -96,91 +94,91 @@ paths:
         '400':
           $ref: '#/components/responses/BadRequest'
 
-  /register:
-    post:
-      tags:
-        - Authentication
-      summary: User registration
-      description: Register a new admin user
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              type: object
-              required: ["name", "email", "password"]
-              properties:
-                name:
-                  type: string
-                  minLength: 2
-                  description: User full name
-                email:
-                  type: string
-                  format: email
-                  description: User email address
-                password:
-                  type: string
-                  minLength: 6
-                  description: User password
-              example:
-                name: Test User
-                email: admin@example.com
-                password: password123
-      responses:
-        '200':
-          description: Registration successful
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  result:
-                    $ref: '#/components/schemas/Admin'
-        '409':
-          description: Email already exists
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/Error'
-        '400':
-          $ref: '#/components/responses/BadRequest'
+  # /register:
+  #   post:
+  #     tags:
+  #       - Authentication
+  #     summary: User registration
+  #     description: Register a new admin user
+  #     requestBody:
+  #       required: true
+  #       content:
+  #         application/json:
+  #           schema:
+  #             type: object
+  #             required: ["name", "email", "password"]
+  #             properties:
+  #               name:
+  #                 type: string
+  #                 minLength: 2
+  #                 description: User full name
+  #               email:
+  #                 type: string
+  #                 format: email
+  #                 description: User email address
+  #               password:
+  #                 type: string
+  #                 minLength: 6
+  #                 description: User password
+  #             example:
+  #               name: Test User
+  #               email: admin@example.com
+  #               password: password123
+  #     responses:
+  #       '200':
+  #         description: Registration successful
+  #         content:
+  #           application/json:
+  #             schema:
+  #               type: object
+  #               properties:
+  #                 success:
+  #                   type: boolean
+  #                   example: true
+  #                 result:
+  #                   $ref: '#/components/schemas/Admin'
+  #       '409':
+  #         description: Email already exists
+  #         content:
+  #           application/json:
+  #             schema:
+  #               $ref: '#/components/schemas/Error'
+  #       '400':
+  #         $ref: '#/components/responses/BadRequest'
 
-  # Admin endpoints
-  /admin/read/{id}:
-    get:
-      tags:
-        - Admin
-      summary: Get admin by ID
-      description: Retrieve admin user information
-      security:
-        - bearerAuth: []
-      parameters:
-        - name: id
-          in: path
-          required: true
-          description: Admin user ID
-          schema:
-            type: string
-      responses:
-        '200':
-          description: Admin user retrieved successfully
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  success:
-                    type: boolean
-                    example: true
-                  result:
-                    $ref: '#/components/schemas/Admin'
-        '404':
-          $ref: '#/components/responses/NotFound'
-        '401':
-          $ref: '#/components/responses/Unauthorized'
+  # # Admin endpoints
+  # /admin/read/{id}:
+  #   get:
+  #     tags:
+  #       - Admin
+  #     summary: Get admin by ID
+  #     description: Retrieve admin user information
+  #     security:
+  #       - bearerAuth: []
+  #     parameters:
+  #       - name: id
+  #         in: path
+  #         required: true
+  #         description: Admin user ID
+  #         schema:
+  #           type: string
+  #     responses:
+  #       '200':
+  #         description: Admin user retrieved successfully
+  #         content:
+  #           application/json:
+  #             schema:
+  #               type: object
+  #               properties:
+  #                 success:
+  #                   type: boolean
+  #                   example: true
+  #                 result:
+  #                   $ref: '#/components/schemas/Admin'
+  #       '404':
+  #         $ref: '#/components/responses/NotFound'
+  #       '401':
+  #         $ref: '#/components/responses/Unauthorized'
 
   /setting/create:
     post:
@@ -279,26 +277,26 @@ paths:
           $ref: '#/components/responses/BadRequest'
 
   # Public endpoints
-  /public/health:
-    get:
-      tags:
-        - Public
-      summary: Health check
-      description: Application health check endpoint
-      responses:
-        '200':
-          description: Application is healthy
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  status:
-                    type: string
-                    example: "ok"
-                  version:
-                    type: string
-                    example: "4.1.1"
+  # /public/health:
+  #   get:
+  #     tags:
+  #       - Public
+  #     summary: Health check
+  #     description: Application health check endpoint
+  #     responses:
+  #       '200':
+  #         description: Application is healthy
+  #         content:
+  #           application/json:
+  #             schema:
+  #               type: object
+  #               properties:
+  #                 status:
+  #                   type: string
+  #                   example: "ok"
+  #                 version:
+  #                   type: string
+  #                   example: "4.1.1"
 
   /public/xss:
     get:
@@ -325,40 +323,40 @@ paths:
                 type: string
               example: "XSS reflected back: <script>alert('XSS')</script>"
 
-  /public/vuln-file:
-    get:
-      tags:
-        - Public
-      summary: Path traversal test endpoint
-      description: |
-        Test endpoint for path traversal-style file read vulnerability.
-        WARNING: This endpoint intentionally vulnerable for security testing.
-      parameters:
-        - name: file
-          in: query
-          required: false
-          description: File parameter for path traversal testing
-          schema:
-            type: string
-            example: "../../../etc/passwd"
-      responses:
-        '200':
-          description: File content (vulnerable)
-          content:
-            text/plain:
-              schema:
-                type: string
-              example: "root:x:0:0:root:/root:/bin/bash"
-        '400':
-          description: Invalid file path
-          content:
-            application/json:
-              schema:
-                type: object
-                properties:
-                  error:
-                    type: string
-                    example: "Invalid file path"
+  # /public/vuln-file:
+  #   get:
+  #     tags:
+  #       - Public
+  #     summary: Path traversal test endpoint
+  #     description: |
+  #       Test endpoint for path traversal-style file read vulnerability.
+  #       WARNING: This endpoint intentionally vulnerable for security testing.
+  #     parameters:
+  #       - name: file
+  #         in: query
+  #         required: false
+  #         description: File parameter for path traversal testing
+  #         schema:
+  #           type: string
+  #           example: "../../../etc/passwd"
+  #     responses:
+  #       '200':
+  #         description: File content (vulnerable)
+  #         content:
+  #           text/plain:
+  #             schema:
+  #               type: string
+  #             example: "root:x:0:0:root:/root:/bin/bash"
+  #       '400':
+  #         description: Invalid file path
+  #         content:
+  #           application/json:
+  #             schema:
+  #               type: object
+  #               properties:
+  #                 error:
+  #                   type: string
+  #                   example: "Invalid file path"
 
 components:
   schemas:
