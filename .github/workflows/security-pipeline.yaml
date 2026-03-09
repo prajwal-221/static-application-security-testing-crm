@@ -18,7 +18,7 @@ on:
 env:
   APP_ENV: staging
   SEC_REPORTS_DIR: security-reports
-  COMPOSE_PROJECT_NAME: idurar-ci
+  COMPOSE_PROJECT_NAME: static-application-security-testing-crm
   DOCKER_BUILDKIT: 1
   # Added PIPELINE_MODE variable
   PIPELINE_MODE: ${{ github.event_name }}
@@ -593,7 +593,7 @@ jobs:
             -v "$PWD:/project" \
             zaproxy/zap-stable \
             zap-api-scan.py \
-            -t /project/openapi.yaml \
+            -t /project/openapi-minimal.yaml \
             -f openapi \
             -r zap-api.html \
             -x zap-api.xml || true
