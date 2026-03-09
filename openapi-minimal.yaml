@@ -1,0 +1,492 @@
+openapi: 3.0.3
+info:
+  title: IDURAR ERP/CRM API (Minimal - 5 Core Endpoints)
+  description: |
+    A comprehensive ERP/CRM application built with Node.js, Express, MongoDB, and React.
+    
+    ## Authentication
+    The API uses JWT (JSON Web Token) based authentication. 
+    - Login to receive a Bearer token
+    - Include token in Authorization header for protected endpoints
+    - Token format: `Bearer <jwt_token>`
+    
+    ## Features
+    - Client management
+    - Invoice and Quote generation
+    - Payment tracking
+    - Tax management
+    - Admin user management
+    - Global settings
+    
+    ## Base URL
+    `http://localhost:4000/api` (for production, replace with your domain)
+  version: 4.1.1
+  contact:
+    name: IDURAR Support
+    email: hello@idurarapp.com
+  license:
+    name: Fair-code License
+
+servers:
+  - url: http://localhost:4000/api
+    description: Development server
+  - url: https://your-domain.com/api
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: Authentication and authorization endpoints
+  - name: Admin
+    description: Admin user management
+  - name: Settings
+    description: Global settings management
+  - name: Clients
+    description: Client management
+  - name: Invoices
+    description: Invoice management
+  - name: Quotes
+    description: Quote management
+  - name: Payments
+    description: Payment management
+  - name: Public
+    description: Public endpoints (no authentication required)
+
+paths:
+  # Authentication endpoints
+  /login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user and return JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["email", "password"]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address
+                password:
+                  type: string
+                  minLength: 6
+                  description: User password
+              example:
+                email: admin@example.com
+                password: password123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Admin'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /register:
+    post:
+      tags:
+        - Authentication
+      summary: User registration
+      description: Register a new admin user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["email", "password"]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address
+                password:
+                  type: string
+                  minLength: 6
+                  description: User password
+              example:
+                email: admin@example.com
+                password: password123
+      responses:
+        '200':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Admin'
+        '409':
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # Admin endpoints
+  /admin/read/{id}:
+    get:
+      tags:
+        - Admin
+      summary: Get admin by ID
+      description: Retrieve admin user information
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Admin user ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Admin user retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Admin'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/create:
+    post:
+      tags:
+        - Settings
+      summary: Create setting
+      description: Create a new global setting
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Setting'
+      responses:
+        '200':
+          description: Setting created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Setting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /client/create:
+    post:
+      tags:
+        - Clients
+      summary: Create client
+      description: Create a new client
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Client'
+      responses:
+        '200':
+          description: Client created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Client'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /invoice/create:
+    post:
+      tags:
+        - Invoices
+      summary: Create invoice
+      description: Create a new invoice
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/Invoice'
+      responses:
+        '200':
+          description: Invoice created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Invoice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  # Public endpoints
+  /public/health:
+    get:
+      tags:
+        - Public
+      summary: Health check
+      description: Application health check endpoint
+      responses:
+        '200':
+          description: Application is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  version:
+                    type: string
+                    example: "4.1.1"
+
+  /public/xss:
+    get:
+      tags:
+        - Public
+      summary: Reflected XSS test endpoint
+      description: |
+        Test endpoint for reflected XSS vulnerability.
+        WARNING: This endpoint intentionally vulnerable for security testing.
+      parameters:
+        - name: input
+          in: query
+          required: false
+          description: Input parameter for XSS testing
+          schema:
+            type: string
+            example: "<script>alert('XSS')</script>"
+      responses:
+        '200':
+          description: XSS test response
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "XSS reflected back: <script>alert('XSS')</script>"
+
+  /public/vuln-file:
+    get:
+      tags:
+        - Public
+      summary: Path traversal test endpoint
+      description: |
+        Test endpoint for path traversal-style file read vulnerability.
+        WARNING: This endpoint intentionally vulnerable for security testing.
+      parameters:
+        - name: file
+          in: query
+          required: false
+          description: File parameter for path traversal testing
+          schema:
+            type: string
+            example: "../../../etc/passwd"
+      responses:
+        '200':
+          description: File content (vulnerable)
+          content:
+            text/plain:
+              schema:
+                type: string
+              example: "root:x:0:0:root:/root:/bin/bash"
+        '400':
+          description: Invalid file path
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+                    example: "Invalid file path"
+
+components:
+  schemas:
+    Admin:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Admin user ID
+        email:
+          type: string
+          format: email
+          description: Admin email
+        role:
+          type: string
+          description: Admin role
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        removed:
+          type: boolean
+          description: Soft delete flag
+
+    Setting:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Setting ID
+        key:
+          type: string
+          description: Setting key
+        value:
+          type: string
+          description: Setting value
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+
+    Client:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Client ID
+        name:
+          type: string
+          description: Client name
+        email:
+          type: string
+          format: email
+          description: Client email
+        phone:
+          type: string
+          description: Client phone
+        address:
+          type: string
+          description: Client address
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+
+    Invoice:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Invoice ID
+        number:
+          type: string
+          description: Invoice number
+        client:
+          $ref: '#/components/schemas/Client'
+        total:
+          type: number
+          description: Invoice total
+        status:
+          type: string
+          enum: [draft, sent, paid, overdue]
+          description: Invoice status
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+
+  responses:
+    Unauthorized:
+      description: Authentication required
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                type: string
+                example: "Authentication required"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                type: string
+                example: "Resource not found"
+
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            type: object
+            properties:
+              success:
+                type: boolean
+                example: false
+              error:
+                type: string
+                example: "Bad request"
+
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
