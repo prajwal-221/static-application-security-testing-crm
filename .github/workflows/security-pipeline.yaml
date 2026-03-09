@@ -271,7 +271,7 @@ jobs:
     needs: secrets_and_sca
     continue-on-error: true
     # Conditional execution for sast job
-    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/main' || github.event_name == 'schedule'
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
 
     steps:
       - uses: actions/checkout@v4
