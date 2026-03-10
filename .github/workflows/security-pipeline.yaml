@@ -695,7 +695,8 @@ jobs:
 
       - name: Install ffuf
         run: |
-          curl -sSfL https://raw.githubusercontent.com/ffuf/ffuf/master/install.sh | bash
+          wget https://github.com/ffuf/ffuf/releases/latest/download/ffuf_linux_amd64.tar.gz
+          tar -xzf ffuf_linux_amd64.tar.gz
           sudo mv ffuf /usr/local/bin/ffuf
 
       - name: Run ffuf API fuzzing (OpenAPI-guided)
@@ -857,7 +858,7 @@ jobs:
       - defectdojo_upload
     continue-on-error: true
     #Conditional execution for validation_pipeline job
-    if: github.event_name == 'schedule'
+    if: github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
 
     steps:
       - name: Run Mutillidae Vulnerable App
