@@ -3,6 +3,7 @@
 This matrix is built from code verified on branch `SAST-Sheet-3`.
 
 ## Legend
+
 - **Injected vuln**: The concrete insecure behavior present in code.
 - **Location**: File and relevant logic.
 - **Repro (example)**: Minimal steps/request to reproduce.
@@ -137,11 +138,3 @@ This matrix is built from code verified on branch `SAST-Sheet-3`.
   - **DAST — ZAP Active** (stage: `docker_security`) (coverage dependent)
 - **Notes**
   - This endpoint is intentionally vulnerable for validation purposes.
-
-## Gaps / Items not yet verified by code search
-
-The following APP-06 items were not located with explicit, unambiguous markers during current code inspection:
-- Reflected XSS endpoint intentionally echoing unsanitized input
-- A deliberately insecure path traversal handler (current `corePublicRouter` includes an `isPathInside` guard)
-
-If you point me to the exact endpoints/files for these, I will extend this matrix with exact locations + reproduction steps + detection stages.
