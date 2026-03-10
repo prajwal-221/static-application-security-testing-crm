@@ -695,8 +695,9 @@ jobs:
 
       - name: Install ffuf
         run: |
-          wget https://github.com/ffuf/ffuf/releases/latest/download/ffuf_linux_amd64.tar.gz
-          tar -xzf ffuf_linux_amd64.tar.gz
+          latest_url=$(curl -s https://api.github.com/repos/ffuf/ffuf/releases/latest | grep "browser_download_url.*linux_amd64.tar.gz" | cut -d '"' -f 4)
+          wget $latest_url
+          tar -xzf ffuf_*.tar.gz
           sudo mv ffuf /usr/local/bin/ffuf
 
       - name: Run ffuf API fuzzing (OpenAPI-guided)
