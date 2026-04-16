@@ -318,9 +318,15 @@ jobs:
       ############################################################
       - name: Install kube-score
         run: |
-          curl -sSL https://github.com/zegl/kube-score/releases/latest/download/kube-score_linux_amd64 \
-            -o /usr/local/bin/kube-score
+          KUBE_SCORE_URL=$(curl -s https://api.github.com/repos/zegl/kube-score/releases/latest | grep "browser_download_url.*linux_amd64" | cut -d '"' -f 4)
+          if [ -z "$KUBE_SCORE_URL" ]; then
+            echo "::warning::Could not find kube-score download URL, using fallback"
+            KUBE_SCORE_URL="https://github.com/zegl/kube-score/releases/download/v1.19.0/kube-score_1.19.0_linux_amd64"
+          fi
+          echo "Downloading kube-score from: $KUBE_SCORE_URL"
+          curl -sSL "$KUBE_SCORE_URL" -o /usr/local/bin/kube-score
           chmod +x /usr/local/bin/kube-score
+          /usr/local/bin/kube-score version || echo "kube-score installed but version check failed"
 
       - name: Kubernetes Best Practices
         run: |
@@ -342,8 +348,14 @@ jobs:
       ############################################################
       - name: Install Conftest
         run: |
-          curl -sSL https://github.com/open-policy-agent/conftest/releases/latest/download/conftest_Linux_x86_64.tar.gz \
-            | tar xz -C /usr/local/bin
+          CONFTEST_URL=$(curl -s https://api.github.com/repos/open-policy-agent/conftest/releases/latest | grep "browser_download_url.*Linux_x86_64.tar.gz" | cut -d '"' -f 4)
+          if [ -z "$CONFTEST_URL" ]; then
+            echo "::warning::Could not find conftest download URL, using fallback"
+            CONFTEST_URL="https://github.com/open-policy-agent/conftest/releases/download/v0.56.0/conftest_0.56.0_Linux_x86_64.tar.gz"
+          fi
+          echo "Downloading conftest from: $CONFTEST_URL"
+          curl -sSL "$CONFTEST_URL" | tar xz -C /usr/local/bin
+          /usr/local/bin/conftest --version || echo "conftest installed but version check failed"
 
       - name: Policy Enforcement
         run: |
@@ -392,8 +404,14 @@ jobs:
       ############################################################
       - name: Install kubesec & yq
         run: |
-          curl -sSL https://github.com/controlplaneio/kubesec/releases/latest/download/kubesec_linux_amd64.tar.gz \
-            | tar xz -C /usr/local/bin
+          KUBESEC_URL=$(curl -s https://api.github.com/repos/controlplaneio/kubesec/releases/latest | grep "browser_download_url.*linux_amd64.tar.gz" | cut -d '"' -f 4)
+          if [ -z "$KUBESEC_URL" ]; then
+            echo "::warning::Could not find kubesec download URL, using fallback"
+            KUBESEC_URL="https://github.com/controlplaneio/kubesec/releases/download/v2.14.2/kubesec_linux_amd64.tar.gz"
+          fi
+          echo "Downloading kubesec from: $KUBESEC_URL"
+          curl -sSL "$KUBESEC_URL" | tar xz -C /usr/local/bin
+          /usr/local/bin/kubesec version 2>/dev/null || echo "kubesec installed"
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
