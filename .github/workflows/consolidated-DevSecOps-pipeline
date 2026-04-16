@@ -1,4 +1,4 @@
-name: Final DevSecOps Pipeline
+name: Consolidated DevSecOps Pipeline
 
 # Consolidated Workflow Trigger Configuration
 on:

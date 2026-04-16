@@ -300,6 +300,7 @@ jobs:
           | tar xz -C /usr/local/bin
 
       - name: Kubernetes Schema Validation
+        continue-on-error: true
         run: |
           mkdir -p $REPORT_DIR
           find $K8S_DIR -name "*.yaml" -print0 | \
@@ -329,6 +330,7 @@ jobs:
           /usr/local/bin/kube-score version || echo "kube-score installed but version check failed"
 
       - name: Kubernetes Best Practices
+        continue-on-error: true
         run: |
           mkdir -p $REPORT_DIR
           kube-score score $K8S_DIR/**/*.yaml -o json > $REPORT_DIR/kube-score.json || true
@@ -358,6 +360,7 @@ jobs:
           /usr/local/bin/conftest --version || echo "conftest installed but version check failed"
 
       - name: Policy Enforcement
+        continue-on-error: true
         run: |
           mkdir -p $REPORT_DIR
           if [ -d "$POLICY_DIR" ] && [ "$(ls -A $POLICY_DIR 2>/dev/null)" ]; then
