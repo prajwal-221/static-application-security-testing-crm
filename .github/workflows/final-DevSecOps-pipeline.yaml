@@ -81,7 +81,7 @@ jobs:
             -o /scan/$SEC_REPORTS_DIR/trivy-fs.json || true
 
       ############################################################
-      # SCA-02 — npm audit baseline (Quick Signal)
+      # SCA-02 — npm audit baseline
       ############################################################
       - name: Setup Node for npm audit
         uses: actions/setup-node@v4
@@ -539,10 +539,10 @@ jobs:
             ${{ env.REPORT_DIR }}/results_json.json
 
 ############################################################
-# STAGE 5 — Docker Build + Image + Runtime + DAST
+# STAGE 5 — Docker Build + Image Scanning + SBOM Generation
 ############################################################
   docker_security:
-    name: Docker Build + Image + Runtime + DAST
+    name: Docker Build + Image Scanning + SBOM Generation
     runs-on: ubuntu-latest
     needs: [sast, k8s_manifest_validation_policy, k8s_iac_security_scanning]
     continue-on-error: true
@@ -646,3 +646,290 @@ jobs:
             --ignore-unfixed \
             --format json \
             -o /out/$SEC_REPORTS_DIR/trivy-image-frontend.json || true
+
+      ############################################################
+      # Upload Docker / Image / SBOM Reports
+      ############################################################
+      - name: Upload Docker Security Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-security-reports
+          path: |
+            ${{ env.SEC_REPORTS_DIR }}/sbom/
+            ${{ env.SEC_REPORTS_DIR }}/trivy-image-backend.json
+            ${{ env.SEC_REPORTS_DIR }}/trivy-image-frontend.json
+
+############################################################
+# STAGE 6 — Consolidated Security Report (Claude Bot)
+############################################################
+  report-generation:
+    name: Consolidated Security Report — Claude Bot
+    runs-on: ubuntu-latest
+    needs:
+      - secrets_and_sca
+      - eslint_security
+      - sast
+      - k8s_manifest_validation_policy
+      - k8s_iac_security_scanning
+      - docker_security
+    if: always()
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+      actions: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      ############################################################
+      # Download all artifacts from all previous jobs
+      ############################################################
+      - name: Download all security artifacts
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      ############################################################
+      # Build artifact inventory so Claude knows what is present
+      # and what is missing — prevents silent gaps in the report
+      ############################################################
+      - name: Build artifact inventory
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+
+          EXPECTED_ARTIFACTS=(
+            "secrets-and-sca-reports"
+            "semgrep-report"
+            "nodejsscan-report"
+            "k8s-manifest-validation-reports"
+            "k8s-iac-security-reports"
+            "docker-security-reports"
+          )
+
+          {
+            echo "# Artifact Inventory"
+            echo ""
+            echo "Generated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+            echo "Triggered by: ${{ github.event_name }}"
+            echo "Branch: ${{ github.ref_name }}"
+            echo "Commit: ${{ github.sha }}"
+            echo ""
+            echo "## Job Status"
+            echo "| Job | Status |"
+            echo "|-----|--------|"
+            echo "| secrets_and_sca | ${{ needs.secrets_and_sca.result }} |"
+            echo "| eslint_security | ${{ needs.eslint_security.result }} |"
+            echo "| sast | ${{ needs.sast.result }} |"
+            echo "| k8s_manifest_validation_policy | ${{ needs.k8s_manifest_validation_policy.result }} |"
+            echo "| k8s_iac_security_scanning | ${{ needs.k8s_iac_security_scanning.result }} |"
+            echo "| docker_security | ${{ needs.docker_security.result }} |"
+            echo ""
+            echo "## Artifact Status"
+            for artifact in "${EXPECTED_ARTIFACTS[@]}"; do
+              if [ -d "artifacts/$artifact" ]; then
+                FILE_COUNT=$(find "artifacts/$artifact" -type f | wc -l)
+                echo "- $artifact: PRESENT ($FILE_COUNT files)"
+              else
+                echo "- $artifact: MISSING"
+              fi
+            done
+            echo ""
+            echo "## All Downloaded Files"
+            if find artifacts -type f | grep -q .; then
+              find artifacts -type f | sort | sed 's#^#- #'
+            else
+              echo "- No files downloaded"
+            fi
+          } > artifacts/artifact-inventory.md
+
+          echo "===== Artifact Inventory ====="
+          cat artifacts/artifact-inventory.md
+
+      ############################################################
+      # Flatten all artifacts into a single directory so Claude
+      # can read them without navigating nested subdirectories
+      ############################################################
+      - name: Flatten artifacts into single scan-reports directory
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p scan-reports
+          find artifacts -type f | while read file; do
+            filename=$(basename "$file")
+            dirname=$(basename "$(dirname "$file")")
+            # prefix with parent folder name to avoid name collisions
+            cp "$file" "scan-reports/${dirname}__${filename}" 2>/dev/null || true
+          done
+          cp artifacts/artifact-inventory.md scan-reports/artifact-inventory.md 2>/dev/null || true
+
+          echo "===== Files in scan-reports/ ====="
+          ls -lh scan-reports/
+
+      ############################################################
+      # Claude bot reads all reports and generates the final
+      # consolidated security report using the GitHub App OAuth token
+      ############################################################
+      - name: Generate consolidated security report with Claude bot
+        if: always()
+        continue-on-error: true
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          prompt: |
+            You are a senior security engineer performing a consolidated security report for a CI/CD pipeline run.
+
+            All security scan artifacts from this pipeline run are available in the ./scan-reports/ directory.
+            The file artifact-inventory.md in that directory lists every expected tool and whether its output was present or missing.
+
+            The following tools may have produced reports (file names are prefixed with their source job name):
+            - Gitleaks: secret scanning (gitleaks.json)
+            - Trivy FS: filesystem dependency vulnerability scan (trivy-fs.json)
+            - npm audit: JavaScript dependency vulnerabilities (npm-audit-backend.json, npm-audit-frontend.json)
+            - ScanCode: license compliance scan (license-scan.json)
+            - Semgrep: SAST static analysis (semgrep.json)
+            - NodeJsScan: Node.js OWASP pattern scan (nodejsscan-backend.json)
+            - yamllint: Kubernetes YAML lint (yamllint.txt)
+            - kubeconform: Kubernetes schema validation (kubeconform.json)
+            - kube-score: Kubernetes best practices (kube-score.json)
+            - Conftest: OPA policy enforcement (conftest.json)
+            - kubesec: Kubernetes workload security (kubesec.json)
+            - Checkov: IaC security scanning (checkov.json, iac-gate-summary.md)
+            - Trivy image: Container image CVE scan (trivy-image-backend.json, trivy-image-frontend.json)
+            - Syft SBOM: Software bill of materials (sbom-backend-image.json, sbom-frontend-image.json, sbom-source-deps.json)
+
+            Read every available file in ./scan-reports/ and generate a single consolidated security report.
+
+            Save the report as ./final-security-report.md with exactly these sections:
+
+            # LedgerLink Security Report
+            ## Pipeline Run: [branch] | [date]
+
+            ### 1. Executive Summary
+            One paragraph summary of the overall security posture. State clearly whether this build is SAFE TO PROMOTE or REQUIRES REMEDIATION before promotion.
+
+            ### 2. Critical and High Findings — Action Required
+            List all CRITICAL and HIGH severity findings across all tools. For each finding include: tool name, severity, file or resource affected, description, and recommended fix. If no critical or high findings exist, state that explicitly.
+
+            ### 3. Findings by Tool
+            For each tool that produced output, list its findings grouped by severity. If a tool produced no findings, say CLEAN. If a tool report was missing, say REPORT NOT AVAILABLE.
+
+            ### 4. Severity Distribution
+            A summary table showing count of findings per severity level per tool.
+
+            ### 5. Duplicate and Overlapping Findings
+            Identify findings that appear in multiple tools about the same vulnerability or file. Mark confirmed duplicates and inferred overlaps separately.
+
+            ### 6. SBOM Summary
+            Summarise what was found in the SBOM reports — total packages, any flagged packages, license issues.
+
+            ### 7. Remediation Priority List
+            Ordered list of the top issues to fix, ranked by severity and exploitability. Include which file to change and what the fix is.
+
+            ### 8. Missing Tool Reports
+            List any expected tool reports that were not available and note the impact on report completeness.
+
+            ### 9. Artifact Inventory
+            Reproduce the artifact inventory from artifact-inventory.md here.
+
+            Requirements:
+            - Only create or modify ./final-security-report.md
+            - Do not modify any source code files
+            - Do not modify any workflow files
+            - Prioritise critical and high findings above everything else
+            - If severity is not provided by a tool, state severity unknown
+            - Keep language clear for both engineers and engineering leadership
+            - The first line after the title must be the SAFE TO PROMOTE or REQUIRES REMEDIATION verdict
+          claude_args: |
+            --max-turns 15
+            --model claude-sonnet-4-6
+
+      ############################################################
+      # Fallback report if Claude fails or times out
+      ############################################################
+      - name: Ensure fallback report exists
+        if: always()
+        shell: bash
+        run: |
+          if [ ! -f final-security-report.md ]; then
+            {
+              echo "# LedgerLink Security Report"
+              echo ""
+              echo "> **Status: REPORT GENERATION FAILED** — Claude bot could not generate the consolidated report for this run. Review individual job artifacts manually."
+              echo ""
+              echo "## Reason"
+              echo "The Claude bot did not produce a final report. This may be due to a timeout, authentication failure, or missing artifacts."
+              echo ""
+              echo "## Available Artifacts"
+              if [ -f artifacts/artifact-inventory.md ]; then
+                cat artifacts/artifact-inventory.md
+              else
+                echo "No artifact inventory was generated."
+              fi
+              echo ""
+              echo "## Individual Job Results"
+              echo "| Job | Result |"
+              echo "|-----|--------|"
+              echo "| secrets_and_sca | ${{ needs.secrets_and_sca.result }} |"
+              echo "| eslint_security | ${{ needs.eslint_security.result }} |"
+              echo "| sast | ${{ needs.sast.result }} |"
+              echo "| k8s_manifest_validation_policy | ${{ needs.k8s_manifest_validation_policy.result }} |"
+              echo "| k8s_iac_security_scanning | ${{ needs.k8s_iac_security_scanning.result }} |"
+              echo "| docker_security | ${{ needs.docker_security.result }} |"
+            } > final-security-report.md
+          fi
+
+      ############################################################
+      # Upload consolidated report as artifact
+      ############################################################
+      - name: Upload consolidated security report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-consolidated-report
+          path: final-security-report.md
+          retention-days: 30
+
+      ############################################################
+      # Post the report as a PR comment if triggered by a PR
+      # This makes the report visible directly on the PR without
+      # needing to download the artifact
+      ############################################################
+      - name: Post report as PR comment
+        if: always() && github.event_name == 'pull_request'
+        continue-on-error: true
+        shell: bash
+        run: |
+          if [ ! -f final-security-report.md ]; then
+            echo "No report file found — skipping PR comment"
+            exit 0
+          fi
+
+          REPORT_CONTENT=$(cat final-security-report.md)
+          CHAR_COUNT=${#REPORT_CONTENT}
+
+          # GitHub PR comments have a 65536 character limit
+          # If the report is too long, post a truncated version with a link to the artifact
+          if [ "$CHAR_COUNT" -gt 60000 ]; then
+            head -c 58000 final-security-report.md > pr-comment-body.md
+            cat <<EOF >> pr-comment-body.md
+
+            ---
+            > Report truncated at 58000 characters. Download the full report from the **security-consolidated-report** artifact in this workflow run.
+            > Workflow run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+            EOF
+          else
+            cp final-security-report.md pr-comment-body.md
+          fi
+
+          gh pr comment ${{ github.event.pull_request.number }} \
+            --body-file pr-comment-body.md \
+            --repo ${{ github.repository }}
+        env:
+          GH_TOKEN: ${{ github.token }}
