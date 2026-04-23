@@ -30,6 +30,47 @@ Built with a **React + Node.js + MongoDB** (**MERN)** stack and fully containeri
 
 ![1768388377021](image/README/1768388377021.png)
 
+## Environment Variables
+
+### Root (`.env`)
+
+These environment variables are used by Docker Compose and shared between services:
+
+```
+# MongoDB Configuration
+MONGO_INITDB_ROOT_USERNAME=root
+MONGO_INITDB_ROOT_PASSWORD=rootpassword
+
+# Backend Configuration
+NODE_ENV=development
+PORT=4000
+DATABASE="mongodb://root:rootpassword@mongodb:27017/idurar?authSource=admin"
+JWT_SECRET="your_private_jwt_secret_key"
+PUBLIC_SERVER_FILE="http://localhost:4000/"
+OPENSSL_CONF='/dev/null'
+```
+
+### Backend (`.env`)
+
+These environment variables are specific to the backend service:
+
+```
+NODE_ENV=development
+PORT=4000
+DATABASE="mongodb://root:rootpassword@mongodb:27017/idurar?authSource=admin"
+JWT_SECRET="your_private_jwt_secret_key"
+PUBLIC_SERVER_FILE="http://localhost:4000/"
+OPENSSL_CONF='/dev/null'
+```
+
+### Frontend
+
+```
+# .env file
+# This is the backend API URL
+REACT_APP_API_URL=http://localhost:4000/api
+```
+
 ## **Application Features**
 
 ### Dashboard Overview

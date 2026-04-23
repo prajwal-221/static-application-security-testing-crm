@@ -1,0 +1,35 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosExperiment
+metadata:
+  name: container-exec
+  namespace: litmus
+spec:
+  definition:
+    scope: Namespaced
+    permissions:
+      - apiGroups: [""]
+        resources: ["pods", "pods/exec"]
+        verbs: ["create", "get", "list"]
+      - apiGroups: ["litmuschaos.io"]
+        resources: ["chaosengines", "chaosresults"]
+        verbs: ["create", "get", "list", "patch", "update"]
+    image: litmuschaos/go-runner:3.0.0
+    imagePullPolicy: IfNotPresent
+    command:
+      - /bin/bash
+    args:
+      - -c
+      - ./experiments/generic/container-exec/run.sh
+    env:
+      - name: TOTAL_CHAOS_DURATION
+        value: "120"
+      - name: TARGET_CONTAINER
+        value: ""
+      - name: COMMAND
+        value: ""
+      - name: CHAOS_NAMESPACE
+        valueFrom:
+          fieldRef:
+            fieldPath: metadata.namespace
+      - name: PODS_AFFECTED_PERC
+        value: "100"

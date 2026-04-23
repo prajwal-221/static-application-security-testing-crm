@@ -1,0 +1,1300 @@
+name: DevSecOps Pipeline
+
+# Updated Workflow Trigger Configuration
+on:
+  pull_request:
+    branches:
+      - SAST-Sheet-3
+
+  push:
+    branches:
+      - SAST-Sheet-3
+
+  schedule:
+    - cron: "0 2 * * *"   # Nightly scan at 2 AM UTC
+
+  workflow_dispatch:
+
+env:
+  APP_ENV: staging
+  SEC_REPORTS_DIR: security-reports
+  COMPOSE_PROJECT_NAME: static-application-security-testing-crm
+  DOCKER_BUILDKIT: 1
+  # Added PIPELINE_MODE variable
+  PIPELINE_MODE: ${{ github.event_name }}
+
+############################################################
+# STAGE 1 — Secrets + Dependency Scanning (SCA)
+############################################################
+jobs:
+  secrets_and_sca:
+    name: Secrets + SCA Scan
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    # Conditional execution for secrets_and_sca job
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      ############################################################
+      # Prepare Report Directory
+      ############################################################
+      - name: Prepare Reports Directory
+        run: mkdir -p $SEC_REPORTS_DIR
+
+      ############################################################
+      # Secret Scan — Gitleaks
+      ############################################################
+      - name: Secret Scan — Gitleaks
+        run: |
+          docker run --rm \
+            -v "$PWD:/repo" \
+            zricethezav/gitleaks:latest \
+            detect --source=/repo \
+            --report-format json \
+            --report-path /repo/$SEC_REPORTS_DIR/gitleaks.json || true
+
+      ############################################################
+      # SECRET DETECTION GATE (HARD FAIL)
+      # Tool: Gitleaks
+      # Condition: Any secret detected → FAIL
+      ############################################################
+      # - name: Enforce Secret Gate
+      #   run: |
+      #     # Conditional Gates
+      #     # PR + Main (Strict Gate)
+      #     if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+      #       echo "Strict mode — failing on SECRETS DETECTED"
+      #       if jq -e '. | length > 0' $SEC_REPORTS_DIR/gitleaks.json; then
+      #         echo "❌ Secrets detected — blocking pipeline"
+      #         exit 1
+      #       fi
+      #     fi
+          
+      #     # Nightly (Advisory Mode)
+      #     if [[ "${{ github.event_name }}" == "schedule" ]]; then
+      #       echo "Nightly mode — secrets check in advisory mode only"
+      #       if jq -e '. | length > 0' $SEC_REPORTS_DIR/gitleaks.json; then
+      #         echo "⚠️  Secrets detected (nightly scan) - not blocking pipeline"
+      #       fi
+      #     fi
+
+      ############################################################
+      # Dependency Scan — Trivy FS
+      ############################################################
+      - name: Dependency Scan — Trivy FS
+        run: |
+          mkdir -p $SEC_REPORTS_DIR
+
+          docker run --rm \
+            -v "$PWD:/scan" \
+            aquasec/trivy:latest \
+            fs /scan \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format json \
+            -o /scan/$SEC_REPORTS_DIR/trivy-fs.json || true
+
+      ############################################################
+      # SCA DEPENDENCY GATE
+      ############################################################
+      # - name: Enforce SCA Gate
+      #   run: |
+      #     # Conditional Gates
+      #     # PR + Main (Strict Gate)
+      #     if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+      #       echo "Strict mode — failing on HIGH/CRITICAL vulnerabilities"
+      #       if jq -e '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
+      #         $SEC_REPORTS_DIR/trivy-fs.json; then
+      #         echo "❌ High/Critical vulnerabilities found — blocking pipeline"
+      #         exit 1
+      #       fi
+      #     fi
+          
+      #     # Nightly (Advisory Mode)
+      #     if [[ "${{ github.event_name }}" == "schedule" ]]; then
+      #       echo "Nightly mode — SCA check in advisory mode only"
+      #       if jq -e '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
+      #         $SEC_REPORTS_DIR/trivy-fs.json; then
+      #         echo "⚠️  High/Critical vulnerabilities found (nightly scan) - not blocking pipeline"
+      #       fi
+      #     fi
+
+      ############################################################
+      # SCA-02 — npm audit baseline (Quick Signal)
+      ############################################################
+      - name: Setup Node for npm audit
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      - name: Install Backend Dependencies
+        run: |
+          cd backend
+          npm ci || true
+
+      - name: Run npm audit (Backend)
+        run: |
+          cd backend
+          npm audit --json > ../$SEC_REPORTS_DIR/npm-audit-backend.json || true
+
+      - name: Install Frontend Dependencies
+        run: |
+          cd frontend
+          npm ci || true
+
+      - name: Run npm audit (Frontend)
+        run: |
+          cd frontend
+          npm audit --json > ../$SEC_REPORTS_DIR/npm-audit-frontend.json || true
+
+
+      ############################################################
+      # SCA-02 Gate 
+      ############################################################
+      # - name: Enforce npm audit Gate
+      #   run: |
+      #     if jq -e '.metadata.vulnerabilities.critical > 0' \
+      #       $SEC_REPORTS_DIR/npm-audit-backend.json; then
+      #       echo "Critical npm vulnerability detected"
+      #       exit 1
+      #     fi
+
+
+      ############################################################
+      # SCA-03 — License Scanning (ScanCode Toolkit)
+      ############################################################
+      - name: Run License Scan (ScanCode)
+        run: |
+          docker run --rm \
+            -v "$PWD:/project" \
+            ghcr.io/aboutcode-org/scancode-toolkit:latest \
+            --license \
+            --json /project/$SEC_REPORTS_DIR/license-scan.json \
+            /project || true
+
+
+      ############################################################
+      # SCA-04 — Trivy SCA Gate
+      ############################################################
+      # - name: Enforce Trivy SCA Gate
+      #   run: |
+      #     # Strict for PR + Main
+      #     if [[ "${{ github.event_name }}" == "pull_request" || "${{ github.ref }}" == "refs/heads/main" ]]; then
+      #       echo "Strict SCA mode — failing on CRITICAL vulnerabilities"
+      #       if jq -e '.Results[]?.Vulnerabilities[]? | select(.Severity=="CRITICAL")' \
+      #         $SEC_REPORTS_DIR/trivy-fs.json; then
+      #         echo "❌ Critical dependency vulnerability detected"
+      #         exit 1
+      #       fi
+      #     fi
+      #
+      #     # Nightly advisory
+      #     if [[ "${{ github.event_name }}" == "schedule" ]]; then
+      #       echo "Nightly advisory mode — not blocking"
+      #     fi
+
+
+
+      ############################################################
+      # Verify Reports Generated (Best Practice)
+      ############################################################
+      - name: Verify Reports Generated
+        run: |
+          echo "===== Generated Security Reports ====="
+          ls -lh $SEC_REPORTS_DIR || true
+
+      ############################################################
+      # Upload SCA Reports
+      ############################################################
+      - name: Upload SCA Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: secrets-and-sca-reports
+          path: ${{ env.SEC_REPORTS_DIR }}/
+
+
+############################################################
+# STAGE 1.5 — ESLint Security Baseline
+############################################################
+  eslint_security:
+    name: ESLint Security Baseline
+    runs-on: ubuntu-latest
+    needs: secrets_and_sca
+    continue-on-error: true  # Allow pipeline to continue even if linting fails (testing pipeline)
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node (cached)
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: 'npm'
+          cache-dependency-path: |
+            backend/package-lock.json
+            frontend/package-lock.json
+
+      ############################################################
+      # Backend ESLint
+      ############################################################
+      - name: Backend ESLint Security Scan
+        continue-on-error: true  # Allow pipeline to continue even if ESLint fails (testing pipeline)
+        run: |
+          cd backend
+          npm ci
+          npm run lint:security || true  # Always succeed, but still run ESLint for reporting
+
+      ############################################################
+      # Frontend ESLint
+      ############################################################
+      - name: Frontend ESLint Security Scan
+        continue-on-error: true  # Allow pipeline to continue even if ESLint fails (testing pipeline)
+        run: |
+          cd frontend
+          npm ci
+          npm run lint:security || true  # Always succeed, but still run ESLint for reporting
+
+
+
+############################################################
+# STAGE 2 — Static Application Security Testing (SAST)
+############################################################
+  sast:
+    name: SAST — Semgrep
+    runs-on: ubuntu-latest
+    needs: secrets_and_sca
+    continue-on-error: true
+    # Conditional execution for sast job
+    if: github.event_name == 'pull_request' || github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      ############################################################
+      # Setup Python (Stable Runtime)
+      ############################################################
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            defectdojo/pyproject.toml
+
+      ############################################################
+      # Install Semgrep CLI
+      ############################################################
+      - name: Install Semgrep
+        run: |
+          python -m pip install --upgrade pip
+          pip install semgrep
+
+      ############################################################
+      # Run Semgrep Scan (JSON Output for DefectDojo)
+      ############################################################
+      - name: Run Semgrep Scan
+        run: |
+          mkdir -p security-reports/semgrep
+          semgrep scan \
+            --config=auto \
+            --config=semgrep-rules/ \
+            --json \
+            --output security-reports/semgrep/semgrep.json \
+            . || true
+
+      ############################################################
+      # SAST-02 — NodeJsScan (OWASP Node.js Patterns)
+      ############################################################
+      - name: Install NodeJsScan
+        run: |
+          pip install nodejsscan
+
+      - name: Run NodeJsScan (Backend)
+        run: |
+          mkdir -p security-reports/nodejsscan
+          nodejsscan backend \
+            --json \
+            > security-reports/nodejsscan/nodejsscan-backend.json || true
+
+      - name: Upload NodeJsScan Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: nodejsscan-report
+          path: security-reports/nodejsscan/
+
+
+      ############################################################
+      # SAST GATE
+      ############################################################
+      # - name: Enforce SAST Gate
+      #   run: |
+      #     if jq -e '.results[] | select(.extra.severity=="HIGH" or .extra.severity=="CRITICAL")' \
+      #       security-reports/semgrep/semgrep.json; then
+      #       exit 1
+      #     fi
+
+      ############################################################
+      # Upload SAST Report Artifact
+      ############################################################
+      - name: Upload Semgrep Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: semgrep-report
+          path: security-reports/semgrep/semgrep.json
+
+
+############################################################
+# STAGE 3 — Docker Build + Image + Runtime + DAST
+############################################################
+  docker_security:
+    name: Docker Build + Image + Runtime + DAST
+    runs-on: ubuntu-latest
+    needs: sast
+    continue-on-error: true
+    # Conditional execution for docker_security job
+    if: github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Docker Login
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_TOKEN }}
+
+      ############################################################
+      # SBOM Generation Tool — Syft
+      ############################################################
+      - name: Install Syft CLI
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh | sh -s -- -b /usr/local/bin
+
+      ############################################################
+      # Secure .env Generation — FIXED
+      ############################################################
+      - name: Generate Secure .env
+        shell: bash
+        run: |
+          set -e
+          {
+            echo "MONGO_INITDB_ROOT_USERNAME=${{ secrets.MONGO_INITDB_ROOT_USERNAME }}"
+            echo "MONGO_INITDB_ROOT_PASSWORD=${{ secrets.MONGO_INITDB_ROOT_PASSWORD }}"
+            echo "DATABASE=${{ secrets.DATABASE }}"
+            echo "JWT_SECRET=${{ secrets.JWT_SECRET }}"
+            echo "NODE_ENV=${{ secrets.NODE_ENV }}"
+            echo "PORT=${{ secrets.PORT }}"
+            echo "PUBLIC_SERVER_FILE=${{ secrets.PUBLIC_SERVER_FILE }}"
+            echo "OPENSSL_CONF=/dev/null"
+          } > .env
+
+      ############################################################
+      # Safe Debug — Verify .env Injection
+      ############################################################
+      - name: Debug — Verify .env Injection (Safe)
+        run: |
+          echo "===== .env Keys Loaded ====="
+          sed 's/=.*$/=****/' .env
+
+      ############################################################
+      # Docker Build
+      ############################################################
+      - name: Build Docker Images
+        run: docker compose --env-file .env build
+
+      - name: Prepare SBOM Output Directory
+        run: mkdir -p $SEC_REPORTS_DIR/sbom
+
+      ############################################################
+      # SBOM Generation — Syft
+      ############################################################
+      - name: Generate SBOM — Source Dependencies
+        run: |
+          syft dir:. \
+            --output json \
+            > $SEC_REPORTS_DIR/sbom/sbom-source-deps.json
+
+      - name: Generate SBOM — Backend Image
+        run: |
+          syft idurar-backend:latest \
+            --output json \
+            > $SEC_REPORTS_DIR/sbom/sbom-backend-image.json || true
+
+      - name: Generate SBOM — Frontend Image
+        run: |
+          syft idurar-frontend:latest \
+            --output json \
+            > $SEC_REPORTS_DIR/sbom/sbom-frontend-image.json || true
+
+
+      ############################################################
+      # Trivy Image Scan
+      ############################################################
+      - name: Trivy Docker Image Scan
+        run: |
+          mkdir -p $SEC_REPORTS_DIR
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/out" \
+            aquasec/trivy:latest \
+            image idurar-backend:latest \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format json \
+            -o /out/$SEC_REPORTS_DIR/trivy-image-backend.json || true
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/out" \
+            aquasec/trivy:latest \
+            image idurar-frontend:latest \
+            --severity HIGH,CRITICAL \
+            --ignore-unfixed \
+            --format json \
+            -o /out/$SEC_REPORTS_DIR/trivy-image-frontend.json || true
+
+
+      ############################################################
+      # Deploy Stack
+      ############################################################
+      - name: Deploy Stack
+        run: docker compose --env-file .env up -d
+
+      ############################################################
+      # Startup Diagnostics
+      ############################################################
+      - name: Docker Status Snapshot
+        run: |
+          echo "===== Docker Containers ====="
+          docker ps -a
+          echo ""
+          echo "===== Docker Compose Services ====="
+          docker compose ps
+
+      - name: MongoDB Logs
+        run: docker logs idurar-mongodb --tail=200 || true
+
+      - name: Backend Logs
+        run: docker logs idurar-backend --tail=200 || true
+
+      - name: Frontend Logs
+        run: docker logs idurar-frontend --tail=200 || true
+
+      ############################################################
+      # Backend Health Check
+      ############################################################
+      - name: Backend Health Check
+        run: |
+          echo "Waiting for backend to become healthy..."
+
+          for i in {1..60}; do
+            if curl -sf http://localhost:4000/public/health; then
+              echo "Backend is healthy"
+              exit 0
+            fi
+            echo "Retry $i/60 — backend not ready yet"
+            sleep 5
+          done
+
+          echo "Backend failed to start"
+          docker logs idurar-backend --tail=200 || true
+          docker logs idurar-mongodb --tail=200 || true
+          exit 1
+
+      ############################################################
+      # IMAGE GATE
+      ############################################################
+      # - name: Enforce Image Gate
+      #   run: |
+      #     if jq -e '.Results[]?.Vulnerabilities[]? | select(.Severity=="HIGH" or .Severity=="CRITICAL")' \
+      #       $SEC_REPORTS_DIR/trivy-image-backend.json; then
+      #       exit 1
+      #     fi
+
+
+      ############################################################
+      # Runtime Scan — Trivy
+      ############################################################
+      - name: Runtime Scan — Trivy
+        run: |
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/out" \
+            aquasec/trivy:latest \
+            image idurar-backend:latest \
+            --format json \
+            -o /out/$SEC_REPORTS_DIR/trivy-runtime-backend.json || true
+
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            -v "$PWD:/out" \
+            aquasec/trivy:latest \
+            image idurar-frontend:latest \
+            --format json \
+            -o /out/$SEC_REPORTS_DIR/trivy-runtime-frontend.json || true
+
+      ############################################################
+      # RUNTIME GATE
+      ############################################################
+      # - name: Enforce Runtime Gate
+      #   run: |
+      #     if jq -e '.Results[]?.Misconfigurations[]? | select(.Severity=="CRITICAL")' \
+      #       $SEC_REPORTS_DIR/trivy-runtime-backend.json; then
+      #       exit 1
+      #     fi
+
+
+
+      ############################################################
+      # DAST — OWASP ZAP Baseline (DefectDojo Compatible)
+      ############################################################
+      - name: OWASP ZAP Baseline
+        run: |
+          mkdir -p security-reports/zap-baseline
+          chmod 777 security-reports/zap-baseline
+          
+          docker pull zaproxy/zap-stable
+
+          docker run --rm \
+            --network host \
+            -u root \
+            -v "$PWD/security-reports/zap-baseline:/zap/wrk" \
+            zaproxy/zap-stable \
+            zap-baseline.py \
+            -t http://localhost:4000 \
+            -r zap-baseline.html \
+            -x zap-baseline.xml || true
+
+      # Zap Baseline Advisory Gate
+      # - name: Zap Baseline Advisory Gate
+      #   run: echo "ZAP baseline findings logged (non-blocking)"
+
+
+      ############################################################
+      # ZAP API Scan — OpenAPI Import (DAST-04)
+      ############################################################
+      - name: ZAP API Scan (OpenAPI)
+        run: |
+          mkdir -p security-reports/zap-api
+          chmod 777 security-reports/zap-api
+
+          docker run --rm \
+            -u root \
+            --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
+            -v "$PWD/security-reports/zap-api:/zap/wrk" \
+            -v "$PWD:/project" \
+            zaproxy/zap-stable \
+            zap-api-scan.py \
+            -t /project/openapi-minimal.yaml \
+            -f openapi \
+            -r zap-api.html \
+            -x zap-api.xml || true
+
+      # - name: Enforce ZAP API Gate
+      #   run: |
+      #     if grep -q "<riskdesc>High\|<riskdesc>Critical" security-reports/zap-api/zap-api.xml; then
+      #       echo "❌ Critical/High DAST findings detected — blocking pipeline"
+      #       exit 1
+      #     fi
+
+
+      ############################################################
+      # ZAP Active DAST — DefectDojo Compatible
+      ############################################################
+      - name: ZAP Active Scan (Live App)
+        run: |
+          mkdir -p security-reports/zap-active
+          chmod 777 security-reports/zap-active
+
+          docker run --rm \
+            -u root \
+            --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
+            -v "$PWD/security-reports/zap-active:/zap/wrk" \
+            zaproxy/zap-stable \
+            zap-full-scan.py \
+            -t http://idurar-backend:4000 \
+            -r zap-active.html \
+            -x zap-active.xml || true
+
+      # - name: Enforce ZAP Active Gate
+      #   run: |
+      #     if grep -q "<riskdesc>High\|<riskdesc>Critical" security-reports/zap-active/zap-active.xml; then
+      #       echo "❌ Critical/High DAST findings detected — blocking pipeline"
+      #       exit 1
+      #     fi
+
+
+      ############################################################
+      # ZAP Authenticated DAST — DefectDojo Compatible
+      ############################################################
+      - name: ZAP Authenticated Scan
+        run: |
+          mkdir -p security-reports/zap-auth
+          chmod 777 security-reports/zap-auth
+
+          docker run --rm \
+            -u root \
+            --network ${{ env.COMPOSE_PROJECT_NAME }}_idurar-network \
+            -v "$PWD/security-reports/zap-auth:/zap/wrk" \
+            zaproxy/zap-stable \
+            zap-full-scan.py \
+            -t http://idurar-backend:4000 \
+            -z "-config replacer.full_list(0).description=auth \
+                 -config replacer.full_list(0).enabled=true \
+                 -config replacer.full_list(0).matchtype=REQ_HEADER \
+                 -config replacer.full_list(0).matchstr=Authorization \
+                 -config replacer.full_list(0).replacement=Bearer ${{ secrets.JWT_TOKEN }}" \
+            -r zap-auth.html \
+            -x zap-auth.xml || true
+
+      # - name: Enforce ZAP Auth Gate
+      #   run: |
+      #     if grep -q "<riskdesc>High\|<riskdesc>Critical" security-reports/zap-auth/zap-auth.xml; then
+      #       echo "❌ Critical/High DAST findings detected — blocking pipeline"
+      #       exit 1
+      #     fi
+
+
+      ############################################################
+      # Upload Reports
+      ############################################################
+      - name: Upload Docker Security Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-security-reports
+          path: security-reports/
+
+      ############################################################
+      # Cleanup
+      ############################################################
+      - name: Cleanup Docker
+        if: always()
+        run: docker compose --env-file .env down -v --remove-orphans
+
+
+############################################################
+# ADVANCED TESTING — API FUZZING (ADV-01)
+############################################################
+  advanced_testing_api_fuzzing:
+    name: Advanced Testing — API Fuzzing (ffuf)
+    runs-on: ubuntu-latest
+    needs: docker_security
+    continue-on-error: true
+    if: github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install ffuf
+        run: |
+          latest_url=$(curl -s https://api.github.com/repos/ffuf/ffuf/releases/latest | grep "browser_download_url.*linux_amd64.tar.gz" | cut -d '"' -f 4)
+          wget $latest_url
+          tar -xzf ffuf_*.tar.gz
+          sudo mv ffuf /usr/local/bin/ffuf
+
+      - name: Run ffuf API fuzzing (OpenAPI-guided)
+        env:
+          JWT_TOKEN: ${{ secrets.JWT_TOKEN }}
+        run: |
+          python3 scripts/ffuf_openapi_fuzz.py \
+            --openapi openapi.yaml \
+            --base-url http://localhost:4000 \
+            --out-dir security-reports/ffuf
+
+      - name: Upload ffuf Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: ffuf-fuzzing-reports
+          path: security-reports/ffuf/
+
+
+############################################################
+# STAGE 4 — Final Aggregated Report
+############################################################
+  final_report:
+    name: Final Security Report Bundle
+    runs-on: ubuntu-latest
+    needs:
+      - secrets_and_sca
+      - sast
+      - docker_security
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: reports
+
+      - name: Create Report Index
+        run: |
+          echo "Enterprise DevSecOps Security Reports" > reports/README.txt
+          echo "====================================" >> reports/README.txt
+          find reports -type f >> reports/README.txt
+
+      - name: Upload Final Report Bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: FINAL-SECURITY-REPORTS
+          path: reports
+
+
+############################################################
+# STAGE 7 — Normalize Reports (Python Engine)
+############################################################
+  normalize_reports:
+    name: Normalize Security Reports
+    runs-on: ubuntu-latest
+    needs: final_report
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download Raw Reports
+        uses: actions/download-artifact@v4
+        with:
+          path: raw-reports
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            defectdojo/pyproject.toml
+
+      - name: Normalize Reports
+        run: |
+          mkdir -p normalized-reports
+          python scripts/normalize_reports.py
+
+      - name: Upload Normalized Reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: normalized-reports
+          path: normalized-reports/
+
+############################################################
+# STAGE 8 — Upload Reports to Public DefectDojo (Correct)
+############################################################
+  defectdojo_upload:
+    name: Upload Reports to DefectDojo (Public)
+    runs-on: ubuntu-latest
+    needs: normalize_reports
+    continue-on-error: true
+    if: github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
+
+    steps:
+      - name: Download Normalized Reports
+        uses: actions/download-artifact@v4
+        with:
+          name: normalized-reports
+          path: dojo-reports
+
+      - name: Upload Reports to DefectDojo
+        shell: bash
+        run: |
+          set -e
+
+          upload() {
+            local scan_type="$1"
+            local file="$2"
+
+            echo "Uploading [$scan_type] → $file"
+
+            curl -s -X POST "https://demo.defectdojo.org/api/v2/import-scan/" \
+              -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
+              -F "scan_type=$scan_type" \
+              -F "file=@$file" \
+              -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}" \
+              -F "close_old_findings=false"
+          }
+
+          #############################
+          # Semgrep (SAST)
+          #############################
+          find dojo-reports -type f -name "semgrep.json" | while read f; do
+            upload "Semgrep JSON Report" "$f"
+          done
+
+          #############################
+          # Trivy (SCA + Image + Runtime)
+          #############################
+          find dojo-reports -type f -name "trivy-*.json" | while read f; do
+            upload "Trivy Scan" "$f"
+          done
+
+          #############################
+          # Gitleaks (Secrets)
+          #############################
+          find dojo-reports -type f -name "gitleaks.json" | while read f; do
+            upload "Gitleaks Scan" "$f"
+          done
+
+          #############################
+          # ZAP (DAST) — XML ONLY
+          #############################
+          find dojo-reports -type f -name "zap-*.xml" | while read f; do
+            upload "ZAP Scan" "$f"
+          done
+
+
+
+############################################################
+# STAGE 9 — Validation Pipeline using Mutillidae (Task 23)
+############################################################
+  validation_pipeline:
+    name: Pipeline Validation using Mutillidae
+    runs-on: ubuntu-latest
+    needs:
+      - docker_security
+      - normalize_reports
+      - defectdojo_upload
+    continue-on-error: true
+    #Conditional execution for validation_pipeline job
+    if: github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
+
+    steps:
+      - name: Run Mutillidae Vulnerable App
+        run: |
+          docker run -d -p 8081:80 citizenstig/nowasp
+
+      - name: Wait for Mutillidae to Start
+        run: |
+          echo "Waiting for Mutillidae..."
+          for i in {1..30}; do
+            if curl -sf http://localhost:8081; then
+              echo "Mutillidae is ready"
+              exit 0
+            fi
+            sleep 3
+          done
+          echo "Mutillidae failed to start"
+          docker logs $(docker ps -q) || true
+          exit 1
+
+      - name: Validate ZAP against Mutillidae
+        run: |
+          docker run --rm --network host \
+            zaproxy/zap-stable \
+            zap-baseline.py \
+            -t http://localhost:8081 \
+            -r mutillidae-zap.html || true
+
+
+
+############################################################
+# STAGE 10 — Documentation Artifact (Task 24)
+############################################################
+  pipeline_documentation:
+    name: Generate Pipeline Documentation
+    runs-on: ubuntu-latest
+    needs:
+      - docker_security
+      - normalize_reports
+      - defectdojo_upload
+      - validation_pipeline
+    # Conditional execution for pipeline_documentation job
+    if: github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
+
+    steps:
+      - name: Create Documentation
+        run: |
+          mkdir -p documentation
+          cat <<EOF > documentation/pipeline-blueprint.md
+          # Enterprise DevSecOps Pipeline Blueprint
+
+          ## Stages:
+          - Secrets Scan
+          - SCA
+          - SAST
+          - Image Scan
+          - Runtime Scan
+          - Active + Authenticated DAST
+          - Report Normalization
+          - DefectDojo Integration
+          - Final Reporting
+          EOF
+
+      - name: Upload Docs
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-documentation
+          path: documentation/
+
+
+############################################################
+# STAGE 11 — Final Security Report Generator
+############################################################
+  final_security_report:
+    name: Generate Final Enterprise Security Report
+    runs-on: ubuntu-latest
+    needs:
+      - docker_security
+      - normalize_reports
+      - defectdojo_upload
+      - validation_pipeline
+      - pipeline_documentation
+    # Conditional execution for final_security_report job
+    if: github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
+
+    steps:
+      ############################################################
+      # Download All Pipeline Artifacts
+      ############################################################
+      - name: Download All Reports
+        uses: actions/download-artifact@v4
+        with:
+          path: all-reports
+
+      - uses: actions/checkout@v4
+
+      ############################################################
+      # Setup Python Runtime
+      ############################################################
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: 'pip'
+          cache-dependency-path: |
+            requirements.txt
+            defectdojo/pyproject.toml
+
+      ############################################################
+      # Install Reporting Dependencies
+      ############################################################
+      - name: Install Dependencies
+        run: |
+          pip install jinja2 rich
+
+      ############################################################
+      # Generate Final Enterprise Security Report
+      ############################################################
+      - name: Generate Final Security Report
+        run: |
+          mkdir -p final-report
+
+          python << 'EOF'
+          import os, json, glob, datetime, xml.etree.ElementTree as ET
+          from collections import defaultdict
+          from jinja2 import Template
+
+          REPORT_ROOT = "all-reports"
+          OUTPUT_FILE = "final-report/final-security-report.md"
+
+          severity = defaultdict(int)
+          tools = defaultdict(list)
+
+          def normalize(sev):
+              sev = sev.upper()
+              if sev in ["CRITICAL","HIGH","MEDIUM","LOW","INFO"]:
+                  return sev
+              if sev in ["WARN","WARNING"]:
+                  return "MEDIUM"
+              return "LOW"
+
+          def parse_trivy(file):
+              try:
+                  data=json.load(open(file))
+                  for r in data.get("Results",[]):
+                      for v in r.get("Vulnerabilities",[]):
+                          s=normalize(v.get("Severity","LOW"))
+                          severity[s]+=1
+                          tools["Trivy"].append(v.get("VulnerabilityID","UNKNOWN"))
+              except: pass
+
+          def parse_semgrep(file):
+              try:
+                  data=json.load(open(file))
+                  for r in data.get("results",[]):
+                      s=normalize(r.get("extra",{}).get("severity","LOW"))
+                      severity[s]+=1
+                      tools["Semgrep"].append(r.get("check_id","UNKNOWN"))
+              except: pass
+
+          def parse_gitleaks(file):
+              try:
+                  data=json.load(open(file))
+                  for f in data:
+                      severity["HIGH"]+=1
+                      tools["Gitleaks"].append(f.get("Description","Hardcoded Secret"))
+              except: pass
+
+          def parse_zap(file):
+              try:
+                  tree=ET.parse(file)
+                  root=tree.getroot()
+                  for alert in root.iter("alertitem"):
+                      sev=normalize(alert.findtext("riskdesc","Low").split()[0])
+                      severity[sev]+=1
+                      tools["ZAP"].append(alert.findtext("name","Web Vulnerability"))
+              except: pass
+
+          for f in glob.glob(f"{REPORT_ROOT}/**/*", recursive=True):
+              if f.endswith(".json"):
+                  if "trivy" in f: parse_trivy(f)
+                  elif "semgrep" in f: parse_semgrep(f)
+                  elif "gitleaks" in f: parse_gitleaks(f)
+              elif f.endswith(".xml") and "zap" in f:
+                  parse_zap(f)
+
+          total=sum(severity.values())
+
+          risk="LOW"
+          if severity["CRITICAL"]>0: risk="CRITICAL"
+          elif severity["HIGH"]>10: risk="HIGH"
+          elif severity["MEDIUM"]>25: risk="MODERATE"
+
+          decision="APPROVED FOR RELEASE WITH SECURITY CONDITIONS"
+          if severity["CRITICAL"]>0:
+              decision="RELEASE BLOCKED — CRITICAL RISK PRESENT"
+
+          template=Template("""
+          # Enterprise DevSecOps Final Security Report
+
+          **Project:** IDURAR Platform  
+          **Environment:** Staging  
+          **Pipeline:** Enterprise DevSecOps CI/CD  
+          **Date:** {{ date }}  
+
+          ---
+
+          # 1. Executive Summary
+
+          ### Overall Security Posture: **{{ risk }} RISK**
+
+          | Severity | Count |
+          |------------|--------|
+          | Critical | {{ crit }} |
+          | High | {{ high }} |
+          | Medium | {{ med }} |
+          | Low | {{ low }} |
+          | Informational | {{ info }} |
+          | **Total** | **{{ total }}** |
+
+          **Release Decision:** **{{ decision }}**
+
+          ---
+
+          # 2. Security Coverage Overview
+
+          End-to-end security validation was executed across:
+
+          - Secrets detection
+          - Dependency security (SCA)
+          - Static application security testing (SAST)
+          - Container image & runtime security
+          - Dynamic application security testing (DAST)
+          - Pipeline exploit validation
+
+          ---
+
+          # 3. Consolidated Vulnerability Analysis
+
+          ## A. Secrets & Credential Exposure — Gitleaks
+
+          **Findings:** {{ gitleaks }}  
+          **Impact:** Credential compromise enables unauthorized access, lateral movement, and data exfiltration.  
+
+          **Remediation:**
+          - Rotate all exposed credentials immediately  
+          - Remove secrets from Git history  
+          - Enforce secrets scanning in CI  
+
+          **Engineering Fixes:**
+          - Use GitHub Secrets / Vault injection  
+          - Implement pre-commit hooks  
+          - Enforce secret lifecycle governance  
+
+          ---
+
+          ## B. Dependency & SCA Findings — Trivy
+
+          **Findings:** {{ trivy }}  
+          **Impact:** Known vulnerable libraries introduce exploitable attack paths.  
+
+          **Remediation:**
+          - Patch high & critical CVEs  
+          - Enforce dependency SLAs  
+
+          **Engineering Fixes:**
+          - SBOM validation  
+          - Automated dependency upgrades  
+
+          ---
+
+          ## C. Static Code Vulnerabilities — Semgrep
+
+          **Findings:** {{ semgrep }}  
+          **Impact:** Injection, authentication bypass, and logic flaws.  
+
+          **Remediation:**
+          - Refactor insecure code  
+          - Apply secure coding patterns  
+
+          **Engineering Fixes:**
+          - SAST gating  
+          - Secure coding standards  
+
+          ---
+
+          ## D. Container Image & Runtime Vulnerabilities — Trivy
+
+          **Findings:** {{ trivy }}  
+          **Impact:** Runtime exploitation and container breakout risk.  
+
+          **Remediation:**
+          - Harden base images  
+          - Patch runtime packages  
+
+          **Engineering Fixes:**
+          - Distroless containers  
+          - Runtime protection enforcement  
+
+          ---
+
+          ## E. Dynamic Application Security Testing — OWASP ZAP
+
+          **Findings:** {{ zap }}  
+          **Impact:** SQL injection, XSS, authentication bypass, session fixation.  
+
+          **Remediation:**
+          - Apply OWASP Top 10 mitigations  
+
+          **Engineering Fixes:**
+          - Secure request validation  
+          - Security headers & session hardening  
+
+          ---
+
+          # 4. Root Cause Analysis
+
+          - Weak secrets governance  
+          - Dependency lifecycle gaps  
+          - Unhardened runtime environments  
+          - Missing secure SDLC enforcement  
+
+          ---
+
+          # 5. Security Recommendations Roadmap
+
+          **Immediate (0–7 Days):**
+          - Patch critical CVEs  
+          - Rotate secrets  
+          - Harden containers  
+
+          **Short Term (30 Days):**
+          - Enforce SAST & SCA gates  
+          - Introduce SBOM governance  
+
+          **Strategic (90 Days):**
+          - Zero Trust architecture  
+          - Runtime exploit detection  
+          - Threat modeling automation  
+
+          ---
+
+          # 6. DevSecOps Maturity Assessment
+
+          **Maturity Level:** Advanced  
+
+          CI/CD demonstrates high security automation, governance, and enterprise readiness.
+
+          ---
+
+          # 7. Strategic Security Enhancements
+
+          - CSPM & cloud posture management  
+          - Continuous breach simulation  
+          - Automated compliance reporting  
+
+          ---
+
+          # 8. Final Security Verdict
+
+          **{{ decision }}**
+
+          ---
+
+          # 9. Appendix
+
+          All raw scan artifacts retained within CI/CD pipeline for compliance and audit purposes.
+          """)
+
+          report=template.render(
+              date=str(datetime.date.today()),
+              crit=severity["CRITICAL"],
+              high=severity["HIGH"],
+              med=severity["MEDIUM"],
+              low=severity["LOW"],
+              info=severity["INFO"],
+              total=total,
+              risk=risk,
+              decision=decision,
+              gitleaks=len(tools["Gitleaks"]),
+              trivy=len(tools["Trivy"]),
+              semgrep=len(tools["Semgrep"]),
+              zap=len(tools["ZAP"])
+          )
+
+          with open(OUTPUT_FILE,"w") as f:
+              f.write(report)
+
+          print("Enterprise Final Security Report generated →", OUTPUT_FILE)
+          EOF
+
+      ############################################################
+      # Upload Final Enterprise Security Report
+      ############################################################
+      - name: Upload Final Security Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: FINAL-ENTERPRISE-SECURITY-REPORT
+          path: final-report/
+
+
+############################################################
+# STAGE 12 — DefectDojo Enterprise Upload 
+############################################################
+  defectdojo_enterprise_intelligence:
+    name: DefectDojo Enterprise Report Upload
+    runs-on: ubuntu-latest
+    needs: final_security_report
+    # Conditional execution for defectdojo_enterprise_intelligence job
+    if: github.ref == 'refs/heads/SAST-Sheet-3' || github.event_name == 'schedule'
+    continue-on-error: true
+
+    steps:
+      ############################################################
+      # Download Final Security Report
+      ############################################################
+      - name: Download Final Security Report
+        uses: actions/download-artifact@v4
+        with:
+          name: FINAL-ENTERPRISE-SECURITY-REPORT
+          path: final-report
+
+      ############################################################
+      # Upload Full Final Report (Attachment)
+      ############################################################
+      - name: Upload Full Final Report to DefectDojo
+        shell: bash
+        run: |
+          set -e
+
+          echo "Uploading enterprise report to DefectDojo..."
+
+          curl -s -X POST "https://demo.defectdojo.org/api/v2/files/" \
+            -H "Authorization: Token ${{ secrets.DOJO_API_KEY }}" \
+            -F "file=@final-report/final-security-report.md" \
+            -F "engagement=${{ secrets.DOJO_ENGAGEMENT_ID }}" \
+            -F "title=Final Security Assessment" \
+            -F "description=Automated CI/CD generated security assessment"

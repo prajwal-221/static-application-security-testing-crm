@@ -1,0 +1,4292 @@
+
+# ===================================================
+# API ENDPOINT SUMMARY (Total: 71 endpoints)
+# ===================================================
+# Authentication (5):
+#   POST   /login
+#   POST   /register
+#   POST   /forgetpassword
+#   POST   /resetpassword
+#   POST   /logout
+#
+# Admin (3):
+#   GET    /admin/read/{id}
+#   PATCH  /admin/password-update/{id}
+#   PATCH  /admin/profile/update
+#
+# Settings (8):
+#   POST   /setting/create
+#   GET    /setting/read/{id}
+#   PATCH  /setting/update/{id}
+#   GET    /setting/search
+#   GET    /setting/list
+#   GET    /setting/listAll
+#   GET    /setting/filter
+#   PATCH  /setting/updateManySetting
+#
+# Clients (7):
+#   POST   /client/create
+#   GET    /client/read/{id}
+#   PATCH  /client/update/{id}
+#   DELETE /client/delete/{id}
+#   GET    /client/search
+#   GET    /client/list
+#   GET    /client/listAll
+#
+# Invoices (8):
+#   POST   /invoice/create
+#   GET    /invoice/read/{id}
+#   PATCH  /invoice/update/{id}
+#   DELETE /invoice/delete/{id}
+#   GET    /invoice/search
+#   GET    /invoice/list
+#   GET    /invoice/listAll
+#   POST   /invoice/mail
+#
+# Quotes (8):
+#   POST   /quote/create
+#   GET    /quote/read/{id}
+#   PATCH  /quote/update/{id}
+#   DELETE /quote/delete/{id}
+#   GET    /quote/search
+#   GET    /quote/list
+#   GET    /quote/listAll
+#   POST   /quote/mail
+#
+# Payments (8):
+#   POST   /payment/create
+#   GET    /payment/read/{id}
+#   PATCH  /payment/update/{id}
+#   DELETE /payment/delete/{id}
+#   GET    /payment/search
+#   GET    /payment/list
+#   GET    /payment/listAll
+#   POST   /payment/mail
+#
+# Payment Modes (7):
+#   POST   /paymentmode/create
+#   GET    /paymentmode/read/{id}
+#   PATCH  /paymentmode/update/{id}
+#   DELETE /paymentmode/delete/{id}
+#   GET    /paymentmode/search
+#   GET    /paymentmode/list
+#   GET    /paymentmode/listAll
+#
+# Taxes (7):
+#   POST   /taxes/create
+#   GET    /taxes/read/{id}
+#   PATCH  /taxes/update/{id}
+#   DELETE /taxes/delete/{id}
+#   GET    /taxes/search
+#   GET    /taxes/list
+#   GET    /taxes/listAll
+
+
+openapi: 3.0.3
+info:
+  title: IDURAR ERP/CRM API
+  description: |
+    A comprehensive ERP/CRM application built with Node.js, Express, MongoDB, and React.
+    
+    ## Authentication
+    The API uses JWT (JSON Web Token) based authentication. 
+    - Login to receive a Bearer token
+    - Include the token in the Authorization header for protected endpoints
+    - Token format: `Bearer <jwt_token>`
+    
+    ## Features
+    - Client management
+    - Invoice and Quote generation
+    - Payment tracking
+    - Tax management
+    - Payment modes
+    - Admin user management
+    - Global settings
+    
+    ## Base URL
+    `http://localhost:4000/api` (for production, replace with your domain)
+  version: 4.1.1
+  contact:
+    name: IDURAR Support
+    email: hello@idurarapp.com
+  license:
+    name: Fair-code License
+
+servers:
+  - url: http://localhost:4000/api
+    description: Development server
+  - url: https://your-domain.com/api
+    description: Production server
+
+tags:
+  - name: Authentication
+    description: Authentication and authorization endpoints
+  - name: Admin
+    description: Admin user management
+  - name: Settings
+    description: Global settings management
+  - name: Clients
+    description: Client management
+  - name: Invoices
+    description: Invoice management
+  - name: Quotes
+    description: Quote management
+  - name: Payments
+    description: Payment management
+  - name: Payment Modes
+    description: Payment method management
+  - name: Taxes
+    description: Tax management
+  - name: Public
+    description: Public endpoints (no authentication required)
+
+paths:
+  # Authentication endpoints
+  /login:
+    post:
+      tags:
+        - Authentication
+      summary: User login
+      description: Authenticate user and return JWT token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["email", "password"]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address
+                password:
+                  type: string
+                  minLength: 6
+                  description: User password
+              example:
+                email: admin@example.com
+                password: password123
+      responses:
+        '200':
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: object
+                    properties:
+                      token:
+                        type: string
+                        description: JWT authentication token
+                      user:
+                        $ref: '#/components/schemas/Admin'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /register:
+    post:
+      tags:
+        - Authentication
+      summary: User registration
+      description: Register a new admin user
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["email", "password", "name"]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address
+                password:
+                  type: string
+                  minLength: 6
+                  description: User password
+                name:
+                  type: string
+                  description: User first name
+                surname:
+                  type: string
+                  description: User last name
+              example:
+                email: newuser@example.com
+                password: password123
+                name: John
+                surname: Doe
+      responses:
+        '201':
+          description: Registration successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Admin'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '409':
+          description: Email already exists
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /forgetpassword:
+    post:
+      tags:
+        - Authentication
+      summary: Request password reset
+      description: Send password reset email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["email"]
+              properties:
+                email:
+                  type: string
+                  format: email
+                  description: User email address
+              example:
+                email: user@example.com
+      responses:
+        '200':
+          description: Reset email sent
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Password reset email sent"
+        '404':
+          description: Email not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /resetpassword:
+    post:
+      tags:
+        - Authentication
+      summary: Reset password
+      description: Reset password with token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["userId", "emailToken", "newPassword"]
+              properties:
+                userId:
+                  type: string
+                  description: User ID
+                emailToken:
+                  type: string
+                  description: Email verification token
+                newPassword:
+                  type: string
+                  minLength: 6
+                  description: New password
+              example:
+                userId: "64f1a2b3c4d5e6f7g8h9i0j1"
+                emailToken: "abc123def456"
+                newPassword: newpassword123
+      responses:
+        '200':
+          description: Password reset successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Password reset successful"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+
+  /logout:
+    post:
+      tags:
+        - Authentication
+      summary: User logout
+      description: Logout user and invalidate token
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logout successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Logged out successfully"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Admin endpoints
+  /admin/read/{id}:
+    get:
+      tags:
+        - Admin
+      summary: Get admin by ID
+      description: Retrieve admin user information
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Admin user ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Admin user retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Admin'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/password-update/{id}:
+    patch:
+      tags:
+        - Admin
+      summary: Update admin password
+      description: Update admin user password
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Admin user ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["currentPassword", "newPassword"]
+              properties:
+                currentPassword:
+                  type: string
+                  description: Current password
+                newPassword:
+                  type: string
+                  minLength: 6
+                  description: New password
+              example:
+                currentPassword: oldpassword123
+                newPassword: newpassword123
+      responses:
+        '200':
+          description: Password updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Password updated successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/profile/password:
+    patch:
+      tags:
+        - Admin
+      summary: Update profile password
+      description: Update current user's profile password
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["currentPassword", "newPassword"]
+              properties:
+                currentPassword:
+                  type: string
+                  description: Current password
+                newPassword:
+                  type: string
+                  minLength: 6
+                  description: New password
+              example:
+                currentPassword: oldpassword123
+                newPassword: newpassword123
+      responses:
+        '200':
+          description: Profile password updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Profile password updated successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /admin/profile/update:
+    patch:
+      tags:
+        - Admin
+      summary: Update admin profile
+      description: Update current user's profile information
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                name:
+                  type: string
+                  description: First name
+                surname:
+                  type: string
+                  description: Last name
+                photo:
+                  type: string
+                  format: binary
+                  description: Profile photo file
+              example:
+                name: John
+                surname: Doe
+      responses:
+        '200':
+          description: Profile updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Admin'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Settings endpoints
+  /setting/create:
+    post:
+      tags:
+        - Settings
+      summary: Create setting
+      description: Create a new global setting
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingInput'
+      responses:
+        '201':
+          description: Setting created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Setting'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/read/{id}:
+    get:
+      tags:
+        - Settings
+      summary: Get setting by ID
+      description: Retrieve a specific setting
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Setting ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Setting retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Setting'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/update/{id}:
+    patch:
+      tags:
+        - Settings
+      summary: Update setting
+      description: Update an existing setting
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Setting ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SettingInput'
+      responses:
+        '200':
+          description: Setting updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Setting'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/search:
+    get:
+      tags:
+        - Settings
+      summary: Search settings
+      description: Search settings with filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Setting'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/list:
+    get:
+      tags:
+        - Settings
+      summary: List settings
+      description: Get paginated list of settings
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: enabled
+          in: query
+          description: Filter by enabled status
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Settings list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Setting'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/listAll:
+    get:
+      tags:
+        - Settings
+      summary: List all settings
+      description: Get all settings without pagination
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All settings retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Setting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/filter:
+    get:
+      tags:
+        - Settings
+      summary: Filter settings
+      description: Filter settings by specific criteria
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter
+          in: query
+          description: Filter criteria
+          schema:
+            type: string
+        - name: equal
+          in: query
+          description: Exact match criteria
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Filtered settings
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Setting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/readBySettingKey/{settingKey}:
+    get:
+      tags:
+        - Settings
+      summary: Get setting by key
+      description: Retrieve setting by its key
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: settingKey
+          in: path
+          required: true
+          description: Setting key
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Setting retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Setting'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/listBySettingKey:
+    get:
+      tags:
+        - Settings
+      summary: List settings by key pattern
+      description: Get settings matching key pattern
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: keys
+          in: query
+          description: Comma-separated list of setting keys
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Settings retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Setting'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/updateBySettingKey/{settingKey}:
+    patch:
+      tags:
+        - Settings
+      summary: Update setting by key
+      description: Update setting by its key
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: settingKey
+          in: path
+          required: true
+          description: Setting key
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                settingValue:
+                  oneOf:
+                    - type: string
+                    - type: number
+                    - type: boolean
+                  description: New setting value
+              example:
+                settingValue: "new value"
+      responses:
+        '200':
+          description: Setting updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Setting'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/upload/{settingKey}:
+    patch:
+      tags:
+        - Settings
+      summary: Upload setting file
+      description: Upload file for setting value
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: settingKey
+          in: path
+          required: true
+          description: Setting key
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                settingValue:
+                  type: string
+                  format: binary
+                  description: File to upload
+      responses:
+        '200':
+          description: File uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Setting'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /setting/updateManySetting:
+    patch:
+      tags:
+        - Settings
+      summary: Update multiple settings
+      description: Update multiple settings at once
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                settings:
+                  type: array
+                  items:
+                    type: object
+                    properties:
+                      settingKey:
+                        type: string
+                      settingValue:
+                        oneOf:
+                          - type: string
+                          - type: number
+                          - type: boolean
+              example:
+                settings:
+                  - settingKey: "company_name"
+                    settingValue: "My Company"
+                  - settingKey: "company_email"
+                    settingValue: "info@company.com"
+      responses:
+        '200':
+          description: Settings updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Setting'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Client endpoints
+  /client/create:
+    post:
+      tags:
+        - Clients
+      summary: Create client
+      description: Create a new client
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientInput'
+      responses:
+        '201':
+          description: Client created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Client'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /client/read/{id}:
+    get:
+      tags:
+        - Clients
+      summary: Get client by ID
+      description: Retrieve a specific client
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Client ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Client retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Client'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /client/update/{id}:
+    patch:
+      tags:
+        - Clients
+      summary: Update client
+      description: Update an existing client
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Client ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ClientInput'
+      responses:
+        '200':
+          description: Client updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Client'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /client/delete/{id}:
+    delete:
+      tags:
+        - Clients
+      summary: Delete client
+      description: Soft delete a client
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Client ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Client deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Client deleted successfully"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /client/search:
+    get:
+      tags:
+        - Clients
+      summary: Search clients
+      description: Search clients with filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Client'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /client/list:
+    get:
+      tags:
+        - Clients
+      summary: List clients
+      description: Get paginated list of clients
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: enabled
+          in: query
+          description: Filter by enabled status
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Clients list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Client'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /client/listAll:
+    get:
+      tags:
+        - Clients
+      summary: List all clients
+      description: Get all clients without pagination
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All clients retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Client'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /client/filter:
+    get:
+      tags:
+        - Clients
+      summary: Filter clients
+      description: Filter clients by specific criteria
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter
+          in: query
+          description: Filter criteria
+          schema:
+            type: string
+        - name: equal
+          in: query
+          description: Exact match criteria
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Filtered clients
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Client'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /client/summary:
+    get:
+      tags:
+        - Clients
+      summary: Get clients summary
+      description: Get summary statistics for clients
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Clients summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total number of clients
+                      enabled:
+                        type: integer
+                        description: Number of enabled clients
+                      disabled:
+                        type: integer
+                        description: Number of disabled clients
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Invoice endpoints
+  /invoice/create:
+    post:
+      tags:
+        - Invoices
+      summary: Create invoice
+      description: Create a new invoice
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoiceInput'
+      responses:
+        '201':
+          description: Invoice created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Invoice'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoice/read/{id}:
+    get:
+      tags:
+        - Invoices
+      summary: Get invoice by ID
+      description: Retrieve a specific invoice
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Invoice ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invoice retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Invoice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoice/update/{id}:
+    patch:
+      tags:
+        - Invoices
+      summary: Update invoice
+      description: Update an existing invoice
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Invoice ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InvoiceInput'
+      responses:
+        '200':
+          description: Invoice updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Invoice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoice/delete/{id}:
+    delete:
+      tags:
+        - Invoices
+      summary: Delete invoice
+      description: Soft delete an invoice
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Invoice ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Invoice deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Invoice deleted successfully"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoice/search:
+    get:
+      tags:
+        - Invoices
+      summary: Search invoices
+      description: Search invoices with filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: ['draft', 'pending', 'sent', 'refunded', 'cancelled', 'on hold']
+        - name: paymentStatus
+          in: query
+          description: Filter by payment status
+          schema:
+            type: string
+            enum: ['unpaid', 'paid', 'partially']
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invoice'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoice/list:
+    get:
+      tags:
+        - Invoices
+      summary: List invoices
+      description: Get paginated list of invoices
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: ['draft', 'pending', 'sent', 'refunded', 'cancelled', 'on hold']
+        - name: paymentStatus
+          in: query
+          description: Filter by payment status
+          schema:
+            type: string
+            enum: ['unpaid', 'paid', 'partially']
+      responses:
+        '200':
+          description: Invoices list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invoice'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoice/listAll:
+    get:
+      tags:
+        - Invoices
+      summary: List all invoices
+      description: Get all invoices without pagination
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All invoices retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invoice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoice/filter:
+    get:
+      tags:
+        - Invoices
+      summary: Filter invoices
+      description: Filter invoices by specific criteria
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter
+          in: query
+          description: Filter criteria
+          schema:
+            type: string
+        - name: equal
+          in: query
+          description: Exact match criteria
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Filtered invoices
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Invoice'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoice/summary:
+    get:
+      tags:
+        - Invoices
+      summary: Get invoices summary
+      description: Get summary statistics for invoices
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Invoices summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total number of invoices
+                      paid:
+                        type: integer
+                        description: Number of paid invoices
+                      unpaid:
+                        type: integer
+                        description: Number of unpaid invoices
+                      partially:
+                        type: integer
+                        description: Number of partially paid invoices
+                      totalAmount:
+                        type: number
+                        description: Total amount of all invoices
+                      paidAmount:
+                        type: number
+                        description: Total amount paid
+                      unpaidAmount:
+                        type: number
+                        description: Total amount unpaid
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /invoice/mail:
+    post:
+      tags:
+        - Invoices
+      summary: Send invoice by email
+      description: Send invoice to client via email
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["id", "email"]
+              properties:
+                id:
+                  type: string
+                  description: Invoice ID
+                email:
+                  type: string
+                  format: email
+                  description: Recipient email
+                subject:
+                  type: string
+                  description: Email subject
+                message:
+                  type: string
+                  description: Email message
+              example:
+                id: "64f1a2b3c4d5e6f7g8h9i0j1"
+                email: "client@example.com"
+                subject: "Your Invoice #123"
+                message: "Please find attached your invoice"
+      responses:
+        '200':
+          description: Invoice sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Invoice sent successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Quote endpoints
+  /quote/create:
+    post:
+      tags:
+        - Quotes
+      summary: Create quote
+      description: Create a new quote
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteInput'
+      responses:
+        '201':
+          description: Quote created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Quote'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/read/{id}:
+    get:
+      tags:
+        - Quotes
+      summary: Get quote by ID
+      description: Retrieve a specific quote
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Quote ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Quote retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Quote'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/update/{id}:
+    patch:
+      tags:
+        - Quotes
+      summary: Update quote
+      description: Update an existing quote
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Quote ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QuoteInput'
+      responses:
+        '200':
+          description: Quote updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Quote'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/delete/{id}:
+    delete:
+      tags:
+        - Quotes
+      summary: Delete quote
+      description: Soft delete a quote
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Quote ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Quote deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Quote deleted successfully"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/search:
+    get:
+      tags:
+        - Quotes
+      summary: Search quotes
+      description: Search quotes with filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: ['draft', 'pending', 'sent', 'accepted', 'declined', 'cancelled', 'on hold']
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Quote'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/list:
+    get:
+      tags:
+        - Quotes
+      summary: List quotes
+      description: Get paginated list of quotes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: status
+          in: query
+          description: Filter by status
+          schema:
+            type: string
+            enum: ['draft', 'pending', 'sent', 'accepted', 'declined', 'cancelled', 'on hold']
+      responses:
+        '200':
+          description: Quotes list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Quote'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/listAll:
+    get:
+      tags:
+        - Quotes
+      summary: List all quotes
+      description: Get all quotes without pagination
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All quotes retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Quote'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/filter:
+    get:
+      tags:
+        - Quotes
+      summary: Filter quotes
+      description: Filter quotes by specific criteria
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter
+          in: query
+          description: Filter criteria
+          schema:
+            type: string
+        - name: equal
+          in: query
+          description: Exact match criteria
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Filtered quotes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Quote'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/summary:
+    get:
+      tags:
+        - Quotes
+      summary: Get quotes summary
+      description: Get summary statistics for quotes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Quotes summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total number of quotes
+                      draft:
+                        type: integer
+                        description: Number of draft quotes
+                      pending:
+                        type: integer
+                        description: Number of pending quotes
+                      sent:
+                        type: integer
+                        description: Number of sent quotes
+                      accepted:
+                        type: integer
+                        description: Number of accepted quotes
+                      declined:
+                        type: integer
+                        description: Number of declined quotes
+                      totalAmount:
+                        type: number
+                        description: Total amount of all quotes
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/mail:
+    post:
+      tags:
+        - Quotes
+      summary: Send quote by email
+      description: Send quote to client via email
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["id", "email"]
+              properties:
+                id:
+                  type: string
+                  description: Quote ID
+                email:
+                  type: string
+                  format: email
+                  description: Recipient email
+                subject:
+                  type: string
+                  description: Email subject
+                message:
+                  type: string
+                  description: Email message
+              example:
+                id: "64f1a2b3c4d5e6f7g8h9i0j1"
+                email: "client@example.com"
+                subject: "Your Quote #123"
+                message: "Please find attached your quote"
+      responses:
+        '200':
+          description: Quote sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Quote sent successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /quote/convert/{id}:
+    get:
+      tags:
+        - Quotes
+      summary: Convert quote to invoice
+      description: Convert a quote to an invoice
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Quote ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Quote converted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Invoice'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Payment endpoints
+  /payment/create:
+    post:
+      tags:
+        - Payments
+      summary: Create payment
+      description: Create a new payment
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentInput'
+      responses:
+        '201':
+          description: Payment created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Payment'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment/read/{id}:
+    get:
+      tags:
+        - Payments
+      summary: Get payment by ID
+      description: Retrieve a specific payment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Payment ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payment retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Payment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment/update/{id}:
+    patch:
+      tags:
+        - Payments
+      summary: Update payment
+      description: Update an existing payment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Payment ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentInput'
+      responses:
+        '200':
+          description: Payment updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Payment'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment/delete/{id}:
+    delete:
+      tags:
+        - Payments
+      summary: Delete payment
+      description: Soft delete a payment
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Payment ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payment deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Payment deleted successfully"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment/search:
+    get:
+      tags:
+        - Payments
+      summary: Search payments
+      description: Search payments with filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: client
+          in: query
+          description: Filter by client ID
+          schema:
+            type: string
+        - name: invoice
+          in: query
+          description: Filter by invoice ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payment'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment/list:
+    get:
+      tags:
+        - Payments
+      summary: List payments
+      description: Get paginated list of payments
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: client
+          in: query
+          description: Filter by client ID
+          schema:
+            type: string
+        - name: invoice
+          in: query
+          description: Filter by invoice ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payments list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payment'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment/listAll:
+    get:
+      tags:
+        - Payments
+      summary: List all payments
+      description: Get all payments without pagination
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All payments retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment/filter:
+    get:
+      tags:
+        - Payments
+      summary: Filter payments
+      description: Filter payments by specific criteria
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter
+          in: query
+          description: Filter criteria
+          schema:
+            type: string
+        - name: equal
+          in: query
+          description: Exact match criteria
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Filtered payments
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Payment'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment/summary:
+    get:
+      tags:
+        - Payments
+      summary: Get payments summary
+      description: Get summary statistics for payments
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Payments summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total number of payments
+                      totalAmount:
+                        type: number
+                        description: Total amount of all payments
+                      thisMonth:
+                        type: number
+                        description: Total amount this month
+                      thisYear:
+                        type: number
+                        description: Total amount this year
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /payment/mail:
+    post:
+      tags:
+        - Payments
+      summary: Send payment receipt by email
+      description: Send payment receipt to client via email
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: ["id", "email"]
+              properties:
+                id:
+                  type: string
+                  description: Payment ID
+                email:
+                  type: string
+                  format: email
+                  description: Recipient email
+                subject:
+                  type: string
+                  description: Email subject
+                message:
+                  type: string
+                  description: Email message
+              example:
+                id: "64f1a2b3c4d5e6f7g8h9i0j1"
+                email: "client@example.com"
+                subject: "Your Payment Receipt #123"
+                message: "Thank you for your payment"
+      responses:
+        '200':
+          description: Payment receipt sent successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Payment receipt sent successfully"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Payment Mode endpoints
+  /paymentmode/create:
+    post:
+      tags:
+        - Payment Modes
+      summary: Create payment mode
+      description: Create a new payment mode
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentModeInput'
+      responses:
+        '201':
+          description: Payment mode created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/PaymentMode'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /paymentmode/read/{id}:
+    get:
+      tags:
+        - Payment Modes
+      summary: Get payment mode by ID
+      description: Retrieve a specific payment mode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Payment mode ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payment mode retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/PaymentMode'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /paymentmode/update/{id}:
+    patch:
+      tags:
+        - Payment Modes
+      summary: Update payment mode
+      description: Update an existing payment mode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Payment mode ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentModeInput'
+      responses:
+        '200':
+          description: Payment mode updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/PaymentMode'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /paymentmode/delete/{id}:
+    delete:
+      tags:
+        - Payment Modes
+      summary: Delete payment mode
+      description: Soft delete a payment mode
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Payment mode ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Payment mode deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Payment mode deleted successfully"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /paymentmode/search:
+    get:
+      tags:
+        - Payment Modes
+      summary: Search payment modes
+      description: Search payment modes with filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PaymentMode'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /paymentmode/list:
+    get:
+      tags:
+        - Payment Modes
+      summary: List payment modes
+      description: Get paginated list of payment modes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: enabled
+          in: query
+          description: Filter by enabled status
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Payment modes list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PaymentMode'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /paymentmode/listAll:
+    get:
+      tags:
+        - Payment Modes
+      summary: List all payment modes
+      description: Get all payment modes without pagination
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All payment modes retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PaymentMode'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /paymentmode/filter:
+    get:
+      tags:
+        - Payment Modes
+      summary: Filter payment modes
+      description: Filter payment modes by specific criteria
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter
+          in: query
+          description: Filter criteria
+          schema:
+            type: string
+        - name: equal
+          in: query
+          description: Exact match criteria
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Filtered payment modes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/PaymentMode'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /paymentmode/summary:
+    get:
+      tags:
+        - Payment Modes
+      summary: Get payment modes summary
+      description: Get summary statistics for payment modes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Payment modes summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total number of payment modes
+                      enabled:
+                        type: integer
+                        description: Number of enabled payment modes
+                      disabled:
+                        type: integer
+                        description: Number of disabled payment modes
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Tax endpoints
+  /taxes/create:
+    post:
+      tags:
+        - Taxes
+      summary: Create tax
+      description: Create a new tax
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaxInput'
+      responses:
+        '201':
+          description: Tax created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Tax'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /taxes/read/{id}:
+    get:
+      tags:
+        - Taxes
+      summary: Get tax by ID
+      description: Retrieve a specific tax
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Tax ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tax retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Tax'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /taxes/update/{id}:
+    patch:
+      tags:
+        - Taxes
+      summary: Update tax
+      description: Update an existing tax
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Tax ID
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaxInput'
+      responses:
+        '200':
+          description: Tax updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    $ref: '#/components/schemas/Tax'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /taxes/delete/{id}:
+    delete:
+      tags:
+        - Taxes
+      summary: Delete tax
+      description: Soft delete a tax
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Tax ID
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Tax deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  message:
+                    type: string
+                    example: "Tax deleted successfully"
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /taxes/search:
+    get:
+      tags:
+        - Taxes
+      summary: Search taxes
+      description: Search taxes with filters
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: q
+          in: query
+          description: Search query
+          schema:
+            type: string
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+      responses:
+        '200':
+          description: Search results
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tax'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /taxes/list:
+    get:
+      tags:
+        - Taxes
+      summary: List taxes
+      description: Get paginated list of taxes
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: limit
+          in: query
+          description: Items per page
+          schema:
+            type: integer
+            default: 10
+        - name: enabled
+          in: query
+          description: Filter by enabled status
+          schema:
+            type: boolean
+      responses:
+        '200':
+          description: Taxes list retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tax'
+                  pagination:
+                    $ref: '#/components/schemas/Pagination'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /taxes/listAll:
+    get:
+      tags:
+        - Taxes
+      summary: List all taxes
+      description: Get all taxes without pagination
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: All taxes retrieved successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tax'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /taxes/filter:
+    get:
+      tags:
+        - Taxes
+      summary: Filter taxes
+      description: Filter taxes by specific criteria
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: filter
+          in: query
+          description: Filter criteria
+          schema:
+            type: string
+        - name: equal
+          in: query
+          description: Exact match criteria
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Filtered taxes
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/Tax'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  /taxes/summary:
+    get:
+      tags:
+        - Taxes
+      summary: Get taxes summary
+      description: Get summary statistics for taxes
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Taxes summary
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  success:
+                    type: boolean
+                    example: true
+                  result:
+                    type: object
+                    properties:
+                      total:
+                        type: integer
+                        description: Total number of taxes
+                      enabled:
+                        type: integer
+                        description: Number of enabled taxes
+                      disabled:
+                        type: integer
+                        description: Number of disabled taxes
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+
+  # Public endpoints
+  /public/health:
+    get:
+      tags:
+        - Public
+      summary: Health check
+      description: Check API health status
+      responses:
+        '200':
+          description: API is healthy
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: "ok"
+                  timestamp:
+                    type: string
+                    format: date-time
+                    example: "2024-01-01T12:00:00.000Z"
+                  service:
+                    type: string
+                    example: "idurar-backend"
+                  version:
+                    type: string
+                    example: "4.1.1"
+
+  /public/{subPath}/{directory}/{file}:
+    get:
+      tags:
+        - Public
+      summary: Get public file
+      description: Serve public files securely
+      parameters:
+        - name: subPath
+          in: path
+          required: true
+          description: Sub path
+          schema:
+            type: string
+        - name: directory
+          in: path
+          required: true
+          description: Directory name
+          schema:
+            type: string
+        - name: file
+          in: path
+          required: true
+          description: File name
+          schema:
+            type: string
+      responses:
+        '200':
+          description: File retrieved successfully
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        '400':
+          description: Invalid filepath
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        '404':
+          description: File not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT authentication token
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        success:
+          type: boolean
+          example: false
+        message:
+          type: string
+          description: Error message
+        error:
+          type: string
+          description: Detailed error information
+      example:
+        success: false
+        message: "Validation failed"
+        error: "Email is required"
+
+    Pagination:
+      type: object
+      properties:
+        currentPage:
+          type: integer
+          description: Current page number
+        totalPages:
+          type: integer
+          description: Total number of pages
+        totalItems:
+          type: integer
+          description: Total number of items
+        itemsPerPage:
+          type: integer
+          description: Number of items per page
+      example:
+        currentPage: 1
+        totalPages: 10
+        totalItems: 100
+        itemsPerPage: 10
+
+    Admin:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Admin ID
+        email:
+          type: string
+          format: email
+          description: Admin email
+        name:
+          type: string
+          description: First name
+        surname:
+          type: string
+          description: Last name
+        photo:
+          type: string
+          description: Profile photo URL
+        role:
+          type: string
+          enum: ['owner']
+          description: User role
+        enabled:
+          type: boolean
+          description: Account enabled status
+        removed:
+          type: boolean
+          description: Soft delete flag
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+      example:
+        _id: "64f1a2b3c4d5e6f7g8h9i0j1"
+        email: "admin@example.com"
+        name: "John"
+        surname: "Doe"
+        photo: "https://example.com/photo.jpg"
+        role: "owner"
+        enabled: true
+        removed: false
+        created: "2024-01-01T12:00:00.000Z"
+
+    Setting:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Setting ID
+        settingKey:
+          type: string
+          description: Unique setting key
+        settingValue:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+          description: Setting value
+        description:
+          type: string
+          description: Setting description
+        enabled:
+          type: boolean
+          description: Setting enabled status
+        removed:
+          type: boolean
+          description: Soft delete flag
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated:
+          type: string
+          format: date-time
+          description: Last update timestamp
+      example:
+        _id: "64f1a2b3c4d5e6f7g8h9i0j1"
+        settingKey: "company_name"
+        settingValue: "My Company"
+        description: "Company name"
+        enabled: true
+        removed: false
+        created: "2024-01-01T12:00:00.000Z"
+        updated: "2024-01-01T12:00:00.000Z"
+
+    SettingInput:
+      type: object
+      required:
+        - settingKey
+        - settingValue
+      properties:
+        settingKey:
+          type: string
+          description: Unique setting key
+        settingValue:
+          oneOf:
+            - type: string
+            - type: number
+            - type: boolean
+          description: Setting value
+        description:
+          type: string
+          description: Setting description
+        enabled:
+          type: boolean
+          description: Setting enabled status
+      example:
+        settingKey: "company_email"
+        settingValue: "info@company.com"
+        description: "Company contact email"
+        enabled: true
+
+    Client:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Client ID
+        name:
+          type: string
+          description: Client name
+        phone:
+          type: string
+          description: Phone number
+        country:
+          type: string
+          description: Country
+        address:
+          type: string
+          description: Address
+        email:
+          type: string
+          format: email
+          description: Email address
+        createdBy:
+          $ref: '#/components/schemas/Admin'
+        assigned:
+          $ref: '#/components/schemas/Admin'
+        enabled:
+          type: boolean
+          description: Client enabled status
+        removed:
+          type: boolean
+          description: Soft delete flag
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated:
+          type: string
+          format: date-time
+          description: Last update timestamp
+      example:
+        _id: "64f1a2b3c4d5e6f7g8h9i0j1"
+        name: "Acme Corporation"
+        phone: "+1-555-0123"
+        country: "United States"
+        address: "123 Main St, City, State 12345"
+        email: "contact@acme.com"
+        enabled: true
+        removed: false
+        created: "2024-01-01T12:00:00.000Z"
+        updated: "2024-01-01T12:00:00.000Z"
+
+    ClientInput:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Client name
+        phone:
+          type: string
+          description: Phone number
+        country:
+          type: string
+          description: Country
+        address:
+          type: string
+          description: Address
+        email:
+          type: string
+          format: email
+          description: Email address
+        assigned:
+          type: string
+          description: Assigned admin ID
+      example:
+        name: "Acme Corporation"
+        phone: "+1-555-0123"
+        country: "United States"
+        address: "123 Main St, City, State 12345"
+        email: "contact@acme.com"
+
+    InvoiceItem:
+      type: object
+      required:
+        - itemName
+        - quantity
+        - price
+        - total
+      properties:
+        itemName:
+          type: string
+          description: Item name
+        description:
+          type: string
+          description: Item description
+        quantity:
+          type: number
+          minimum: 0
+          description: Item quantity
+        price:
+          type: number
+          minimum: 0
+          description: Item price
+        total:
+          type: number
+          minimum: 0
+          description: Item total price
+      example:
+        itemName: "Web Development"
+        description: "Custom website development"
+        quantity: 1
+        price: 1000
+        total: 1000
+
+    Invoice:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Invoice ID
+        number:
+          type: integer
+          description: Invoice number
+        year:
+          type: integer
+          description: Invoice year
+        content:
+          type: string
+          description: Additional content
+        recurring:
+          type: string
+          enum: ['daily', 'weekly', 'monthly', 'annually', 'quarter']
+          description: Recurring frequency
+        date:
+          type: string
+          format: date-time
+          description: Invoice date
+        expiredDate:
+          type: string
+          format: date-time
+          description: Expiration date
+        client:
+          $ref: '#/components/schemas/Client'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceItem'
+          description: Invoice items
+        taxRate:
+          type: number
+          minimum: 0
+          description: Tax rate
+        subTotal:
+          type: number
+          minimum: 0
+          description: Subtotal
+        taxTotal:
+          type: number
+          minimum: 0
+          description: Tax total
+        total:
+          type: number
+          minimum: 0
+          description: Total amount
+        currency:
+          type: string
+          description: Currency code
+        credit:
+          type: number
+          minimum: 0
+          description: Credit amount
+        discount:
+          type: number
+          minimum: 0
+          description: Discount amount
+        paymentStatus:
+          type: string
+          enum: ['unpaid', 'paid', 'partially']
+          description: Payment status
+        isOverdue:
+          type: boolean
+          description: Overdue status
+        approved:
+          type: boolean
+          description: Approved status
+        notes:
+          type: string
+          description: Additional notes
+        status:
+          type: string
+          enum: ['draft', 'pending', 'sent', 'refunded', 'cancelled', 'on hold']
+          description: Invoice status
+        pdf:
+          type: string
+          description: PDF file path
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              path:
+                type: string
+              description:
+                type: string
+              isPublic:
+                type: boolean
+          description: Attached files
+        createdBy:
+          $ref: '#/components/schemas/Admin'
+        removed:
+          type: boolean
+          description: Soft delete flag
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated:
+          type: string
+          format: date-time
+          description: Last update timestamp
+      example:
+        _id: "64f1a2b3c4d5e6f7g8h9i0j1"
+        number: 123
+        year: 2024
+        date: "2024-01-01T12:00:00.000Z"
+        expiredDate: "2024-01-31T12:00:00.000Z"
+        client:
+          $ref: '#/components/schemas/Client'
+        items:
+          - itemName: "Web Development"
+            quantity: 1
+            price: 1000
+            total: 1000
+        taxRate: 10
+        subTotal: 1000
+        taxTotal: 100
+        total: 1100
+        currency: "USD"
+        paymentStatus: "unpaid"
+        status: "draft"
+        approved: false
+        isOverdue: false
+        removed: false
+        created: "2024-01-01T12:00:00.000Z"
+        updated: "2024-01-01T12:00:00.000Z"
+
+    InvoiceInput:
+      type: object
+      required:
+        - number
+        - year
+        - date
+        - expiredDate
+        - client
+        - items
+        - currency
+      properties:
+        number:
+          type: integer
+          description: Invoice number
+        year:
+          type: integer
+          description: Invoice year
+        content:
+          type: string
+          description: Additional content
+        recurring:
+          type: string
+          enum: ['daily', 'weekly', 'monthly', 'annually', 'quarter']
+          description: Recurring frequency
+        date:
+          type: string
+          format: date-time
+          description: Invoice date
+        expiredDate:
+          type: string
+          format: date-time
+          description: Expiration date
+        client:
+          type: string
+          description: Client ID
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceItem'
+          description: Invoice items
+        taxRate:
+          type: number
+          minimum: 0
+          description: Tax rate
+        currency:
+          type: string
+          description: Currency code
+        credit:
+          type: number
+          minimum: 0
+          description: Credit amount
+        discount:
+          type: number
+          minimum: 0
+          description: Discount amount
+        notes:
+          type: string
+          description: Additional notes
+        status:
+          type: string
+          enum: ['draft', 'pending', 'sent', 'refunded', 'cancelled', 'on hold']
+          description: Invoice status
+      example:
+        number: 123
+        year: 2024
+        date: "2024-01-01T12:00:00.000Z"
+        expiredDate: "2024-01-31T12:00:00.000Z"
+        client: "64f1a2b3c4d5e6f7g8h9i0j1"
+        items:
+          - itemName: "Web Development"
+            quantity: 1
+            price: 1000
+            total: 1000
+        taxRate: 10
+        currency: "USD"
+        status: "draft"
+
+    Quote:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Quote ID
+        number:
+          type: integer
+          description: Quote number
+        year:
+          type: integer
+          description: Quote year
+        content:
+          type: string
+          description: Additional content
+        date:
+          type: string
+          format: date-time
+          description: Quote date
+        expiredDate:
+          type: string
+          format: date-time
+          description: Expiration date
+        client:
+          $ref: '#/components/schemas/Client'
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceItem'
+          description: Quote items
+        taxRate:
+          type: number
+          minimum: 0
+          description: Tax rate
+        subTotal:
+          type: number
+          minimum: 0
+          description: Subtotal
+        taxTotal:
+          type: number
+          minimum: 0
+          description: Tax total
+        total:
+          type: number
+          minimum: 0
+          description: Total amount
+        currency:
+          type: string
+          description: Currency code
+        credit:
+          type: number
+          minimum: 0
+          description: Credit amount
+        discount:
+          type: number
+          minimum: 0
+          description: Discount amount
+        notes:
+          type: string
+          description: Additional notes
+        status:
+          type: string
+          enum: ['draft', 'pending', 'sent', 'accepted', 'declined', 'cancelled', 'on hold']
+          description: Quote status
+        approved:
+          type: boolean
+          description: Approved status
+        isExpired:
+          type: boolean
+          description: Expired status
+        converted:
+          type: boolean
+          description: Converted to invoice status
+        pdf:
+          type: string
+          description: PDF file path
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              id:
+                type: string
+              name:
+                type: string
+              path:
+                type: string
+              description:
+                type: string
+              isPublic:
+                type: boolean
+          description: Attached files
+        createdBy:
+          $ref: '#/components/schemas/Admin'
+        removed:
+          type: boolean
+          description: Soft delete flag
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated:
+          type: string
+          format: date-time
+          description: Last update timestamp
+      example:
+        _id: "64f1a2b3c4d5e6f7g8h9i0j1"
+        number: 456
+        year: 2024
+        date: "2024-01-01T12:00:00.000Z"
+        expiredDate: "2024-01-31T12:00:00.000Z"
+        client:
+          $ref: '#/components/schemas/Client'
+        items:
+          - itemName: "Web Development"
+            quantity: 1
+            price: 1000
+            total: 1000
+        taxRate: 10
+        subTotal: 1000
+        taxTotal: 100
+        total: 1100
+        currency: "USD"
+        status: "draft"
+        approved: false
+        isExpired: false
+        converted: false
+        removed: false
+        created: "2024-01-01T12:00:00.000Z"
+        updated: "2024-01-01T12:00:00.000Z"
+
+    QuoteInput:
+      type: object
+      required:
+        - number
+        - year
+        - date
+        - expiredDate
+        - client
+        - items
+        - currency
+      properties:
+        number:
+          type: integer
+          description: Quote number
+        year:
+          type: integer
+          description: Quote year
+        content:
+          type: string
+          description: Additional content
+        date:
+          type: string
+          format: date-time
+          description: Quote date
+        expiredDate:
+          type: string
+          format: date-time
+          description: Expiration date
+        client:
+          type: string
+          description: Client ID
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/InvoiceItem'
+          description: Quote items
+        taxRate:
+          type: number
+          minimum: 0
+          description: Tax rate
+        currency:
+          type: string
+          description: Currency code
+        credit:
+          type: number
+          minimum: 0
+          description: Credit amount
+        discount:
+          type: number
+          minimum: 0
+          description: Discount amount
+        notes:
+          type: string
+          description: Additional notes
+        status:
+          type: string
+          enum: ['draft', 'pending', 'sent', 'accepted', 'declined', 'cancelled', 'on hold']
+          description: Quote status
+      example:
+        number: 456
+        year: 2024
+        date: "2024-01-01T12:00:00.000Z"
+        expiredDate: "2024-01-31T12:00:00.000Z"
+        client: "64f1a2b3c4d5e6f7g8h9i0j1"
+        items:
+          - itemName: "Web Development"
+            quantity: 1
+            price: 1000
+            total: 1000
+        taxRate: 10
+        currency: "USD"
+        status: "draft"
+
+    Payment:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Payment ID
+        number:
+          type: integer
+          description: Payment number
+        date:
+          type: string
+          format: date-time
+          description: Payment date
+        amount:
+          type: number
+          minimum: 0
+          description: Payment amount
+        currency:
+          type: string
+          description: Currency code
+        client:
+          $ref: '#/components/schemas/Client'
+        invoice:
+          $ref: '#/components/schemas/Invoice'
+        paymentMode:
+          $ref: '#/components/schemas/PaymentMode'
+        ref:
+          type: string
+          description: Reference number
+        description:
+          type: string
+          description: Payment description
+        createdBy:
+          $ref: '#/components/schemas/Admin'
+        removed:
+          type: boolean
+          description: Soft delete flag
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated:
+          type: string
+          format: date-time
+          description: Last update timestamp
+      example:
+        _id: "64f1a2b3c4d5e6f7g8h9i0j1"
+        number: 789
+        date: "2024-01-01T12:00:00.000Z"
+        amount: 500
+        currency: "USD"
+        client:
+          $ref: '#/components/schemas/Client'
+        invoice:
+          $ref: '#/components/schemas/Invoice'
+        paymentMode:
+          $ref: '#/components/schemas/PaymentMode'
+        ref: "REF123"
+        description: "Partial payment for invoice #123"
+        removed: false
+        created: "2024-01-01T12:00:00.000Z"
+        updated: "2024-01-01T12:00:00.000Z"
+
+    PaymentInput:
+      type: object
+      required:
+        - number
+        - date
+        - amount
+        - currency
+        - client
+        - invoice
+      properties:
+        number:
+          type: integer
+          description: Payment number
+        date:
+          type: string
+          format: date-time
+          description: Payment date
+        amount:
+          type: number
+          minimum: 0
+          description: Payment amount
+        currency:
+          type: string
+          description: Currency code
+        client:
+          type: string
+          description: Client ID
+        invoice:
+          type: string
+          description: Invoice ID
+        paymentMode:
+          type: string
+          description: Payment mode ID
+        ref:
+          type: string
+          description: Reference number
+        description:
+          type: string
+          description: Payment description
+      example:
+        number: 789
+        date: "2024-01-01T12:00:00.000Z"
+        amount: 500
+        currency: "USD"
+        client: "64f1a2b3c4d5e6f7g8h9i0j1"
+        invoice: "64f1a2b3c4d5e6f7g8h9i0j2"
+        paymentMode: "64f1a2b3c4d5e6f7g8h9i0j3"
+        ref: "REF123"
+        description: "Partial payment for invoice #123"
+
+    PaymentMode:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Payment mode ID
+        name:
+          type: string
+          description: Payment mode name
+        description:
+          type: string
+          description: Payment mode description
+        enabled:
+          type: boolean
+          description: Payment mode enabled status
+        removed:
+          type: boolean
+          description: Soft delete flag
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated:
+          type: string
+          format: date-time
+          description: Last update timestamp
+      example:
+        _id: "64f1a2b3c4d5e6f7g8h9i0j1"
+        name: "Credit Card"
+        description: "Payment via credit card"
+        enabled: true
+        removed: false
+        created: "2024-01-01T12:00:00.000Z"
+        updated: "2024-01-01T12:00:00.000Z"
+
+    PaymentModeInput:
+      type: object
+      required:
+        - name
+      properties:
+        name:
+          type: string
+          description: Payment mode name
+        description:
+          type: string
+          description: Payment mode description
+        enabled:
+          type: boolean
+          description: Payment mode enabled status
+      example:
+        name: "Credit Card"
+        description: "Payment via credit card"
+        enabled: true
+
+    Tax:
+      type: object
+      properties:
+        _id:
+          type: string
+          description: Tax ID
+        name:
+          type: string
+          description: Tax name
+        description:
+          type: string
+          description: Tax description
+        rate:
+          type: number
+          minimum: 0
+          description: Tax rate percentage
+        enabled:
+          type: boolean
+          description: Tax enabled status
+        removed:
+          type: boolean
+          description: Soft delete flag
+        created:
+          type: string
+          format: date-time
+          description: Creation timestamp
+        updated:
+          type: string
+          format: date-time
+          description: Last update timestamp
+      example:
+        _id: "64f1a2b3c4d5e6f7g8h9i0j1"
+        name: "VAT"
+        description: "Value Added Tax"
+        rate: 20
+        enabled: true
+        removed: false
+        created: "2024-01-01T12:00:00.000Z"
+        updated: "2024-01-01T12:00:00.000Z"
+
+    TaxInput:
+      type: object
+      required:
+        - name
+        - rate
+      properties:
+        name:
+          type: string
+          description: Tax name
+        description:
+          type: string
+          description: Tax description
+        rate:
+          type: number
+          minimum: 0
+          description: Tax rate percentage
+        enabled:
+          type: boolean
+          description: Tax enabled status
+      example:
+        name: "VAT"
+        description: "Value Added Tax"
+        rate: 20
+        enabled: true
+
+  responses:
+    BadRequest:
+      description: Bad request
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            message: "Validation failed"
+            error: "Required field is missing"
+
+    Unauthorized:
+      description: Unauthorized
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            message: "Unauthorized access"
+            error: "Invalid or missing authentication token"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            message: "Resource not found"
+            error: "The requested resource does not exist"
+
+    Conflict:
+      description: Resource conflict
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            message: "Resource conflict"
+            error: "Resource already exists"
+
+    InternalServerError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+          example:
+            success: false
+            message: "Internal server error"
+            error: "An unexpected error occurred"
+
+security:
+  - bearerAuth: []

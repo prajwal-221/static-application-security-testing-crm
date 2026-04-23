@@ -1,0 +1,49 @@
+# apiVersion: litmuschaos.io/v1alpha1
+# kind: ChaosExperiment
+# metadata:
+#   name: pod-memory-hog
+#   namespace: litmus
+#   labels:
+#     name: pod-memory-hog
+# spec:
+#   definition:
+#     scope: Namespaced
+#     labels:
+#       name: pod-memory-hog
+#     permissions:
+#       - apiGroups: [""]
+#         resources: ["pods","events"]
+#         verbs: ["create","delete","get","list","patch","update","watch"]
+#       - apiGroups: ["apps"]
+#         resources: ["deployments","statefulsets","daemonsets","replicasets"]
+#         verbs: ["get","list","watch"]
+#       - apiGroups: ["batch"]
+#         resources: ["jobs"]
+#         verbs: ["create","delete","get","list","patch","update","watch"]
+#       - apiGroups: ["litmuschaos.io"]
+#         resources: ["chaosengines","chaosexperiments","chaosresults"]
+#         verbs: ["create","delete","get","list","patch","update","watch"]
+#     image: litmuschaos/go-runner:3.0.0
+#     imagePullPolicy: Always
+#     command:
+#       - /bin/bash
+#     args:
+#       - -c
+#       - ./experiments -name pod-memory-hog
+#     env:
+#       - name: MEMORY_CONSUMPTION
+#         value: "500"
+#       - name: TOTAL_CHAOS_DURATION
+#         value: "120"
+#       - name: CHAOS_INTERVAL
+#         value: "10"
+#       - name: RAMP_TIME
+#         value: "30"
+#       - name: PODS_AFFECTED_PERC
+#         value: "100"
+#       - name: CONTAINER_RUNTIME
+#         value: "containerd"
+#       - name: SOCKET_PATH
+#         value: "/run/containerd/containerd.sock"
+#       - name: LIB_IMAGE
+#         value: "litmuschaos/go-runner:3.0.0"

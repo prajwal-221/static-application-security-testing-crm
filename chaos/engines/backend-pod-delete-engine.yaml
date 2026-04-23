@@ -1,0 +1,55 @@
+apiVersion: litmuschaos.io/v1alpha1
+kind: ChaosEngine
+metadata:
+  name: backend-pod-delete-chaos
+  namespace: litmus
+spec:
+  engineState: active
+  chaosServiceAccount: litmus
+
+  chaosResult:
+    name: backend-pod-delete-chaos-result
+
+  appinfo:
+    appns: idurar
+    applabel: "app=backend"
+    appkind: deployment
+
+  experiments:
+    - name: pod-delete
+      spec:
+        components:
+          env:
+            # Total duration chaos will run
+            - name: TOTAL_CHAOS_DURATION
+              value: "90"
+
+            # Time between pod deletions
+            - name: CHAOS_INTERVAL
+              value: "15"
+
+            # Delete 1 pod at a time (safe + deterministic)
+            - name: PODS_AFFECTED_PERC
+              value: "25"
+
+            # Allow chaos even if replicas temporarily drop
+            - name: FORCE
+              value: "true"
+
+            # Ensure the correct container is targeted
+            - name: TARGET_CONTAINER
+              value: "backend"
+
+            # Required for containerd-based clusters
+            - name: CONTAINER_RUNTIME
+              value: "containerd"
+            - name: SOCKET_PATH
+              value: "/run/containerd/containerd.sock"
+
+            # Grace period before chaos starts
+            - name: RAMP_TIME
+              value: "30"
+
+            # Runner image
+            - name: LIB_IMAGE
+              value: "litmuschaos/go-runner:3.0.0"

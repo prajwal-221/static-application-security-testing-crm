@@ -6,7 +6,7 @@ const path = require('path');
 // Make sure we are running node 7.6+
 const [major, minor] = process.versions.node.split('.').map(parseFloat);
 if (major < 20) {
-  console.log('Please upgrade your node.js version at least 20 or greater. 👌\n ');
+  console.log('Please upgrade your node.js version at least 20 or greater.\n');
   process.exit();
 }
 

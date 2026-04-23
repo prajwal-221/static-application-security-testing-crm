@@ -1,8 +1,41 @@
 const express = require('express');
 const router = express.Router();
-
 const path = require('path');
+const fs = require('fs');
 const { isPathInside } = require('../../utils/is-path-inside');
+
+// Health check endpoint
+router.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    timestamp: new Date().toISOString(),
+    service: 'idurar-backend',
+    version: process.env.npm_package_version || '1.0.0'
+  });
+});
+
+router.get('/xss', (req, res) => {
+  const q = req.query.q ?? '';
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  return res.status(200).send(`<html><body>${q}</body></html>`);
+});
+
+router.get('/vuln-file', (req, res) => {
+  const rootDir = path.join(__dirname, '../../public');
+  const p = req.query.path ?? '';
+  const target = path.join(rootDir, p);
+  try {
+    const data = fs.readFileSync(target);
+    res.setHeader('Content-Type', 'application/octet-stream');
+    return res.status(200).send(data);
+  } catch (e) {
+    return res.status(404).json({
+      success: false,
+      result: null,
+      message: 'File not found',
+    });
+  }
+});
 
 router.route('/:subPath/:directory/:file').get(function (req, res) {
   try {

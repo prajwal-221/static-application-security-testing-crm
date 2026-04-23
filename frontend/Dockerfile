@@ -11,7 +11,6 @@ ENV VITE_BACKEND_SERVER=$VITE_BACKEND_SERVER
 # Copy package files
 COPY package*.json ./
 
-
 # Install dependencies
 RUN npm install
 
@@ -33,5 +32,5 @@ COPY nginx.conf /etc/nginx/conf.d/default.conf
 # Expose port 80
 EXPOSE 80
 
-# Start nginx
-CMD ["nginx", "-g", "daemon off;"]
+# Log startup message, then start nginx
+CMD ["/bin/sh", "-c", "echo 'NGINX container is up and serving traffic on port 80' && nginx -g 'daemon off;'"]
