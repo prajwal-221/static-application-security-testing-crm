@@ -292,3 +292,5 @@ Backend API (Express)
    ↓
 MongoDB (Docker)
 ```
+
+# Test for Claude Bot Report Generation
