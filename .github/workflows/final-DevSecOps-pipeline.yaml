@@ -776,7 +776,7 @@ jobs:
       # consolidated security report using the GitHub App OAuth token
       ############################################################
       - name: Generate consolidated security report with Claude bot
-        if: always()
+        if: github.event_name == 'pull_request'
         continue-on-error: true
         uses: anthropics/claude-code-action@v1
         with:
@@ -861,10 +861,17 @@ jobs:
             {
               echo "# LedgerLink Security Report"
               echo ""
-              echo "> **Status: REPORT GENERATION FAILED** — Claude bot could not generate the consolidated report for this run. Review individual job artifacts manually."
-              echo ""
-              echo "## Reason"
-              echo "The Claude bot did not produce a final report. This may be due to a timeout, authentication failure, or missing artifacts."
+              if [ "${{ github.event_name }}" == "pull_request" ]; then
+                echo "> **Status: REPORT GENERATION FAILED** — Claude bot could not generate the consolidated report for this run. Review individual job artifacts manually."
+                echo ""
+                echo "## Reason"
+                echo "The Claude bot did not produce a final report. This may be due to a timeout, authentication failure, or missing artifacts."
+              else
+                echo "> **Status: AUTOMATED SUMMARY** — Claude bot only runs on pull requests. This is a summary of security scan results for a push event."
+                echo ""
+                echo "## Note"
+                echo "Claude bot report generation is only available on pull request events. For detailed analysis, create a pull request to trigger the full Claude-powered report."
+              fi
               echo ""
               echo "## Available Artifacts"
               if [ -f artifacts/artifact-inventory.md ]; then
